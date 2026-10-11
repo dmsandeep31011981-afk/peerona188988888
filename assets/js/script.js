@@ -143,6 +143,127 @@ document.addEventListener('DOMContentLoaded', () => {
     track.addEventListener('mouseleave', startAutoplay);
   }
 
+  /* ---------- Glimpse carousel (gallery) ---------- */
+  const glimpseCarousel = document.getElementById('glimpseCarousel');
+  const glimpseTrack = document.getElementById('glimpseTrack');
+  if (glimpseCarousel && glimpseTrack) {
+    const glimpseSlides = Array.from(glimpseTrack.querySelectorAll('.glimpse-slide'));
+    const total = glimpseSlides.length;
+    let current = 0;
+    let glimpseTimer = null;
+
+    const wrapDiff = (diff, n) => {
+      let d = diff % n;
+      if (d > n / 2) d -= n;
+      if (d < -n / 2) d += n;
+      return d;
+    };
+
+    const SIDE_SCALE = 0.76;
+    const glimpseAnchor = document.getElementById('glimpseAnchor');
+
+    const renderGlimpse = () => {
+      // Base (unscaled) card size comes straight from the CSS for the
+      // current breakpoint, so the gap math stays correct on any screen size.
+      const baseWidth = parseFloat(getComputedStyle(glimpseSlides[0]).width) || 300;
+      const gap = Math.max(20, baseWidth * 0.14);
+      const step = (baseWidth / 2) + (baseWidth * SIDE_SCALE / 2) + gap;
+
+      const carouselRect = glimpseCarousel.getBoundingClientRect();
+      const carouselCenterX = carouselRect.left + carouselRect.width / 2;
+
+      const sideHalfWidth = (baseWidth * SIDE_SCALE) / 2;
+      const naturalLeftEdge = (carouselCenterX - step) - sideHalfWidth;
+      const naturalRightEdge = (carouselCenterX + step) + sideHalfWidth;
+      const MOBILE_BREAKPOINT = 640; // matches the .glimpse-slide mobile CSS breakpoint
+
+      let targetOffset;
+      if (window.innerWidth <= MOBILE_BREAKPOINT) {
+        // On phones there isn't room to both align under the "P" and keep
+        // every preview slide fully visible. Pushing toward the "P" spends
+        // the whole available margin moving the group right, which is why
+        // the right image kept ending up flush against the edge. Start from
+        // as far left as the group can go while keeping the left preview
+        // slide fully on screen (same formula as minOffset below, computed
+        // here before it's declared), then nudge it a little back toward
+        // the right — the clamp further down still keeps the right preview
+        // slide fully on screen even if this nudge is more than the room
+        // available on narrower phones.
+        const rightNudge = 16;
+        targetOffset = (carouselRect.left - naturalLeftEdge) + rightNudge;
+      } else if (glimpseAnchor) {
+        // Desktop/tablet: the center slide's left edge starts below the
+        // left edge of the "p" in "Glimpse" — there's plenty of room here.
+        const anchorRect = glimpseAnchor.getBoundingClientRect();
+        targetOffset = (anchorRect.left + baseWidth / 2) - carouselCenterX;
+      } else {
+        targetOffset = 0;
+      }
+
+      // Clamp to the room that's actually available so neither preview
+      // slide is ever pushed out past the carousel's own box.
+      const maxOffset = carouselRect.right - naturalRightEdge;
+      const minOffset = carouselRect.left - naturalLeftEdge;
+      // On screens too narrow to fit all 3 preview slides without any
+      // crop at all, minOffset can end up greater than maxOffset. Clamping
+      // naively in that case collapses to one extreme and crops one side
+      // hard while leaving the other untouched, which is worse than before.
+      // Fall back to splitting the unavoidable overflow evenly instead.
+      const alignOffset = minOffset <= maxOffset
+        ? Math.min(Math.max(targetOffset, minOffset), maxOffset)
+        : (minOffset + maxOffset) / 2;
+
+      glimpseSlides.forEach((slide, i) => {
+        const diff = wrapDiff(i - current, total);
+        const abs = Math.abs(diff);
+        let scale = 1, opacity = 1, blur = 'none';
+        if (abs === 1) { scale = SIDE_SCALE; opacity = 0.8; blur = 'brightness(0.85)'; }
+        else if (abs >= 2) { scale = 0.6; opacity = 0; blur = 'brightness(0.8)'; }
+        slide.style.transform = `translateX(${diff * step + alignOffset}px) scale(${scale})`;
+        slide.style.opacity = opacity;
+        slide.style.filter = blur;
+        slide.style.zIndex = String(10 - abs);
+        slide.style.pointerEvents = abs <= 1 ? 'auto' : 'none';
+        slide.classList.toggle('is-center', abs === 0);
+      });
+    };
+
+    const nextGlimpse = () => {
+      current = (current + 1) % total;
+      renderGlimpse();
+    };
+
+    const startGlimpse = () => {
+      stopGlimpse();
+      glimpseTimer = setInterval(nextGlimpse, 1500);
+    };
+    const stopGlimpse = () => {
+      if (glimpseTimer) clearInterval(glimpseTimer);
+      glimpseTimer = null;
+    };
+
+    glimpseSlides.forEach((slide, i) => {
+      slide.addEventListener('click', () => {
+        current = i;
+        renderGlimpse();
+      });
+    });
+
+    glimpseCarousel.addEventListener('mouseenter', stopGlimpse);
+    glimpseCarousel.addEventListener('mouseleave', startGlimpse);
+    const handleGlimpseResize = () => {
+      renderGlimpse();
+    };
+    window.addEventListener('resize', handleGlimpseResize, { passive: true });
+
+    renderGlimpse();
+    startGlimpse();
+
+    // Re-check alignment once fonts/layout settle (web fonts can shift text metrics).
+    window.addEventListener('load', handleGlimpseResize);
+    setTimeout(handleGlimpseResize, 400);
+  }
+
   /* ---------- Newsletter form ---------- */
   const newsletterForm = document.getElementById('newsletterForm');
   if (newsletterForm) {
