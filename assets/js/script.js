@@ -139,14 +139,26 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     startAutoplay();
 
-    track.addEventListener('mouseenter', () => clearInterval(slideTimer));
-    track.addEventListener('mouseleave', startAutoplay);
+    // Same touch-vs-hover guard as the glimpse carousels below: a tap on
+    // a touch device can fire "mouseenter" with no "mouseleave" to match,
+    // which would otherwise leave this stuck paused permanently.
+    if (window.matchMedia('(hover: hover) and (pointer: fine)').matches) {
+      track.addEventListener('mouseenter', () => clearInterval(slideTimer));
+      track.addEventListener('mouseleave', startAutoplay);
+    }
   }
 
-  /* ---------- Glimpse carousel (gallery) ---------- */
-  const glimpseCarousel = document.getElementById('glimpseCarousel');
-  const glimpseTrack = document.getElementById('glimpseTrack');
-  if (glimpseCarousel && glimpseTrack) {
+  /* ---------- Glimpse-style coverflow carousel (reusable) ----------
+     Powers both the Gallery's "A Glimpse of Your Retreat" strip and the
+     "Explore Our Signature Treatments" strip, with identical behavior:
+     3 visible slides, autoplay, pause-on-hover, click-to-select, the
+     mobile left-bias/clamp logic, and (when an anchor element id is
+     given) centering the lead slide under a heading letter on desktop. */
+  const initGlimpseCarousel = (carouselId, trackId, anchorId) => {
+    const glimpseCarousel = document.getElementById(carouselId);
+    const glimpseTrack = document.getElementById(trackId);
+    if (!glimpseCarousel || !glimpseTrack) return;
+
     const glimpseSlides = Array.from(glimpseTrack.querySelectorAll('.glimpse-slide'));
     const total = glimpseSlides.length;
     let current = 0;
@@ -160,7 +172,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const SIDE_SCALE = 0.76;
-    const glimpseAnchor = document.getElementById('glimpseAnchor');
+    const glimpseAnchor = anchorId ? document.getElementById(anchorId) : null;
 
     const renderGlimpse = () => {
       // Base (unscaled) card size comes straight from the CSS for the
@@ -242,6 +254,19 @@ document.addEventListener('DOMContentLoaded', () => {
       glimpseTimer = null;
     };
 
+    // The carousel should only move while its images are actually on
+    // screen: pause it while scrolled away (desktop or mobile) and have
+    // it pick back up moving as soon as it scrolls back into view,
+    // rather than silently cycling somewhere off-screen the whole time.
+    // It also still pauses on hover, so track both reasons independently
+    // and only play when neither is blocking it.
+    let isHovered = false;
+    let isVisible = false;
+    const updatePlayState = () => {
+      if (isVisible && !isHovered) startGlimpse();
+      else stopGlimpse();
+    };
+
     glimpseSlides.forEach((slide, i) => {
       slide.addEventListener('click', () => {
         current = i;
@@ -249,20 +274,40 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     });
 
-    glimpseCarousel.addEventListener('mouseenter', stopGlimpse);
-    glimpseCarousel.addEventListener('mouseleave', startGlimpse);
+    // Only pause-on-hover on devices that actually have a real mouse.
+    // On touch devices, tapping a slide (to select it) fires a synthetic
+    // "mouseenter" with no matching "mouseleave" afterward, which was
+    // permanently stuck the carousel as "hovered" and it never moved
+    // again, even after scrolling away and back. Touch taps still work
+    // via the click handler above; they just no longer touch isHovered.
+    const supportsHover = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+    if (supportsHover) {
+      glimpseCarousel.addEventListener('mouseenter', () => { isHovered = true; updatePlayState(); });
+      glimpseCarousel.addEventListener('mouseleave', () => { isHovered = false; updatePlayState(); });
+    }
+
+    const visibilityObserver = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        isVisible = entry.isIntersecting;
+        updatePlayState();
+      });
+    }, { threshold: 0.2 });
+    visibilityObserver.observe(glimpseCarousel);
+
     const handleGlimpseResize = () => {
       renderGlimpse();
     };
     window.addEventListener('resize', handleGlimpseResize, { passive: true });
 
     renderGlimpse();
-    startGlimpse();
 
     // Re-check alignment once fonts/layout settle (web fonts can shift text metrics).
     window.addEventListener('load', handleGlimpseResize);
     setTimeout(handleGlimpseResize, 400);
-  }
+  };
+
+  initGlimpseCarousel('glimpseCarousel', 'glimpseTrack', 'glimpseAnchor');
+  initGlimpseCarousel('treatmentsCarousel', 'treatmentsTrack', null);
 
   /* ---------- Newsletter form ---------- */
   const newsletterForm = document.getElementById('newsletterForm');
