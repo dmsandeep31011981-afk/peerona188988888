@@ -123,6 +123,11 @@ i[data-icon] svg { width: 100%; height: 100%; fill: none; stroke: currentColor; 
 }
 .topbar-info { display: flex; gap: 22px; }
 .topbar-info span, .topbar-hours span { display: inline-flex; align-items: center; gap: 6px; opacity: 0.9; }
+.topbar-link {
+  display: inline-flex; align-items: center; gap: 6px; opacity: 0.9;
+  color: inherit; text-decoration: none; transition: opacity 0.2s ease;
+}
+.topbar-link:hover { opacity: 1; text-decoration: underline; }
 
 /* ---------- Header ---------- */
 .site-header {
@@ -396,6 +401,7 @@ section { padding: 100px 0; }
   text-align: center; transition: var(--transition);
 }
 .contact-card:hover { transform: translateY(-6px); box-shadow: var(--shadow-md); background: var(--white); }
+.contact-card-link { display: block; color: inherit; text-decoration: none; cursor: pointer; }
 .contact-icon {
   width: 54px; height: 54px; margin: 0 auto 16px; border-radius: 50%;
   background: #ff3300; color: var(--white); display: flex; align-items: center; justify-content: center;
@@ -425,6 +431,11 @@ section { padding: 100px 0; }
 .footer-col ul a:hover { color: var(--gold-light); padding-left: 4px; }
 .footer-contact li { display: flex; align-items: flex-start; gap: 10px; color: rgba(251,243,236,0.7); font-size: 0.88rem; overflow-wrap: anywhere; }
 .footer-contact i { flex-shrink: 0; margin-top: 3px; color: var(--gold-light); }
+.footer-link {
+  display: flex; align-items: flex-start; gap: 10px; color: inherit;
+  text-decoration: none; transition: color 0.2s ease;
+}
+.footer-link:hover { color: var(--white); text-decoration: underline; }
 .footer-social { display: flex; gap: 12px; }
 .footer-social a { width: 36px; height: 36px; border-radius: 50%; background: rgba(251,243,236,0.08); display: flex; align-items: center; justify-content: center; color: var(--cream); transition: var(--transition); }
 .footer-social a:hover { background: #ff3300; }
@@ -469,8 +480,8 @@ section { padding: 100px 0; }
 @media (max-width: 640px) {
   section { padding: 70px 0; }
   .services-grid, .why-grid, .pricing-grid, .team-grid, .contact-info-grid { grid-template-columns: 1fr; }
-  .glimpse-carousel { height: 210px; }
-  .glimpse-slide { width: 130px; height: 115px; margin-top: -57.5px; margin-left: -65px; border-radius: 14px; }
+  .glimpse-carousel { height: 250px; }
+  .glimpse-slide { width: 230px; height: 205px; margin-top: -102.5px; margin-left: -115px; border-radius: 20px; }
   .form-row { grid-template-columns: 1fr; }
   .newsletter-inner { text-align: center; justify-content: center; }
   .newsletter-form { justify-content: center; width: 100%; }

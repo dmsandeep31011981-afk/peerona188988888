@@ -174,56 +174,63 @@ document.addEventListener('DOMContentLoaded', () => {
     const SIDE_SCALE = 0.76;
     const glimpseAnchor = anchorId ? document.getElementById(anchorId) : null;
 
+    const MOBILE_BREAKPOINT = 640; // matches the .glimpse-slide mobile CSS breakpoint
+    const MOBILE_GAP_PX = 12; // visible gap between the center and each side slide
+
     const renderGlimpse = () => {
       // Base (unscaled) card size comes straight from the CSS for the
       // current breakpoint, so the gap math stays correct on any screen size.
       const baseWidth = parseFloat(getComputedStyle(glimpseSlides[0]).width) || 300;
-      const gap = Math.max(20, baseWidth * 0.14);
-      const step = (baseWidth / 2) + (baseWidth * SIDE_SCALE / 2) + gap;
+      const isMobile = window.innerWidth <= MOBILE_BREAKPOINT;
+
+      let step;
+      if (isMobile) {
+        // On phones the center slide is intentionally large and the carousel
+        // isn't wide enough to show the side slides in full, so they end up
+        // cropped by the carousel's own edges — that's expected. What still
+        // matters is a real gap between the center and each side slide
+        // (not an overlap), so this uses the same "fully spaced" formula as
+        // desktop, just with a smaller fixed gap sized for a phone screen.
+        step = (baseWidth / 2) + (baseWidth * SIDE_SCALE / 2) + MOBILE_GAP_PX;
+      } else {
+        const gap = Math.max(20, baseWidth * 0.14);
+        step = (baseWidth / 2) + (baseWidth * SIDE_SCALE / 2) + gap;
+      }
 
       const carouselRect = glimpseCarousel.getBoundingClientRect();
       const carouselCenterX = carouselRect.left + carouselRect.width / 2;
 
-      const sideHalfWidth = (baseWidth * SIDE_SCALE) / 2;
-      const naturalLeftEdge = (carouselCenterX - step) - sideHalfWidth;
-      const naturalRightEdge = (carouselCenterX + step) + sideHalfWidth;
-      const MOBILE_BREAKPOINT = 640; // matches the .glimpse-slide mobile CSS breakpoint
-
-      let targetOffset;
-      if (window.innerWidth <= MOBILE_BREAKPOINT) {
-        // On phones there isn't room to both align under the "P" and keep
-        // every preview slide fully visible. Pushing toward the "P" spends
-        // the whole available margin moving the group right, which is why
-        // the right image kept ending up flush against the edge. Start from
-        // as far left as the group can go while keeping the left preview
-        // slide fully on screen (same formula as minOffset below, computed
-        // here before it's declared), then nudge it a little back toward
-        // the right — the clamp further down still keeps the right preview
-        // slide fully on screen even if this nudge is more than the room
-        // available on narrower phones.
-        const rightNudge = 16;
-        targetOffset = (carouselRect.left - naturalLeftEdge) + rightNudge;
-      } else if (glimpseAnchor) {
-        // Desktop/tablet: the center slide's left edge starts below the
-        // left edge of the "p" in "Glimpse" — there's plenty of room here.
-        const anchorRect = glimpseAnchor.getBoundingClientRect();
-        targetOffset = (anchorRect.left + baseWidth / 2) - carouselCenterX;
+      let alignOffset;
+      if (isMobile) {
+        // The partial side peek is the point here, so just keep the trio
+        // centered rather than fighting to keep every slide fully visible.
+        alignOffset = 0;
       } else {
-        targetOffset = 0;
-      }
+        const sideHalfWidth = (baseWidth * SIDE_SCALE) / 2;
+        const naturalLeftEdge = (carouselCenterX - step) - sideHalfWidth;
+        const naturalRightEdge = (carouselCenterX + step) + sideHalfWidth;
 
-      // Clamp to the room that's actually available so neither preview
-      // slide is ever pushed out past the carousel's own box.
-      const maxOffset = carouselRect.right - naturalRightEdge;
-      const minOffset = carouselRect.left - naturalLeftEdge;
-      // On screens too narrow to fit all 3 preview slides without any
-      // crop at all, minOffset can end up greater than maxOffset. Clamping
-      // naively in that case collapses to one extreme and crops one side
-      // hard while leaving the other untouched, which is worse than before.
-      // Fall back to splitting the unavoidable overflow evenly instead.
-      const alignOffset = minOffset <= maxOffset
-        ? Math.min(Math.max(targetOffset, minOffset), maxOffset)
-        : (minOffset + maxOffset) / 2;
+        let targetOffset = 0;
+        if (glimpseAnchor) {
+          // Desktop/tablet: the center slide's left edge starts below the
+          // left edge of the "p" in "Glimpse" — there's plenty of room here.
+          const anchorRect = glimpseAnchor.getBoundingClientRect();
+          targetOffset = (anchorRect.left + baseWidth / 2) - carouselCenterX;
+        }
+
+        // Clamp to the room that's actually available so neither preview
+        // slide is ever pushed out past the carousel's own box.
+        const maxOffset = carouselRect.right - naturalRightEdge;
+        const minOffset = carouselRect.left - naturalLeftEdge;
+        // On screens too narrow to fit all 3 preview slides without any
+        // crop at all, minOffset can end up greater than maxOffset. Clamping
+        // naively in that case collapses to one extreme and crops one side
+        // hard while leaving the other untouched, which is worse than before.
+        // Fall back to splitting the unavoidable overflow evenly instead.
+        alignOffset = minOffset <= maxOffset
+          ? Math.min(Math.max(targetOffset, minOffset), maxOffset)
+          : (minOffset + maxOffset) / 2;
+      }
 
       glimpseSlides.forEach((slide, i) => {
         const diff = wrapDiff(i - current, total);
