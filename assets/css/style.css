@@ -410,6 +410,58 @@ section { padding: 100px 0; }
 .contact-card strong { display: block; font-size: 0.98rem; margin-bottom: 6px; }
 .contact-card span { color: var(--text-light); font-size: 0.88rem; }
 
+.contact-cta {
+  text-align: center; margin-top: 44px; padding-top: 36px; border-top: 1px solid var(--cream-dark);
+}
+.contact-cta p { color: var(--text-light); margin-bottom: 18px; }
+.contact-cta .btn { display: inline-flex; align-items: center; gap: 10px; }
+.contact-cta .btn i { width: 18px; height: 18px; }
+
+/* ---------- Message Us Modal ---------- */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(74, 59, 54, 0.55);
+  display: none; align-items: center; justify-content: center;
+  padding: 20px; z-index: 1000; opacity: 0; transition: opacity 0.3s ease;
+}
+.modal-overlay.is-open { display: flex; opacity: 1; }
+.modal-box {
+  background: var(--white); border-radius: var(--radius-lg); box-shadow: var(--shadow-md);
+  padding: 44px 36px; max-width: 460px; width: 100%; position: relative;
+  transform: translateY(14px) scale(0.97); opacity: 0; transition: transform 0.3s ease, opacity 0.3s ease;
+  max-height: 90vh; overflow-y: auto;
+}
+.modal-overlay.is-open .modal-box { transform: translateY(0) scale(1); opacity: 1; }
+.modal-close {
+  position: absolute; top: 18px; right: 18px; width: 36px; height: 36px; border-radius: 50%;
+  border: none; background: var(--cream); color: var(--text-dark); display: flex;
+  align-items: center; justify-content: center; cursor: pointer; transition: var(--transition);
+}
+.modal-close:hover { background: #ff3300; color: var(--white); }
+.modal-close i { width: 16px; height: 16px; }
+.modal-box h3 { font-size: 1.5rem; margin-bottom: 6px; }
+.modal-sub { color: var(--text-light); font-size: 0.92rem; margin-bottom: 24px; }
+.message-form { display: flex; flex-direction: column; gap: 14px; }
+.message-form label { font-size: 0.85rem; font-weight: 600; color: var(--text-dark); margin-bottom: -8px; }
+.message-form input, .message-form textarea {
+  width: 100%; padding: 13px 16px; border: 1px solid var(--cream-dark); border-radius: var(--radius-sm);
+  font-family: var(--font-body); font-size: 0.94rem; color: var(--text-dark); background: var(--cream);
+  transition: var(--transition); resize: vertical;
+}
+.message-form input:focus, .message-form textarea:focus {
+  outline: none; border-color: var(--blush-dark); background: var(--white);
+}
+.message-form input[type="file"] {
+  padding: 10px 14px; border: 1.5px dashed var(--blush-dark); border-radius: var(--radius-sm);
+  background: var(--cream); font-family: var(--font-body); font-size: 0.85rem; color: var(--text-dark);
+  cursor: pointer;
+}
+.form-hint { font-size: 0.78rem; color: var(--text-light); margin-top: -8px; }
+.message-form button[type="submit"] { margin-top: 6px; }
+.message-form button[type="submit"]:disabled { opacity: 0.7; cursor: not-allowed; transform: none; }
+.form-status { font-size: 0.88rem; text-align: center; min-height: 1.2em; }
+.form-status.success { color: #2f8f4e; }
+.form-status.error { color: #d6453d; }
+
 /* ---------- Newsletter ---------- */
 .newsletter { background: #ff3300; padding: 60px 0; }
 .newsletter-inner { display: flex; align-items: center; justify-content: space-between; gap: 30px; flex-wrap: wrap; }

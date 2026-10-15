@@ -20,7 +20,9 @@ document.addEventListener('DOMContentLoaded', () => {
     facebook: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><text x="12" y="16.5" text-anchor="middle" font-size="11" fill="currentColor" stroke="none" font-family="sans-serif">f</text></svg>',
     instagram: '<svg viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="17" height="17" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17" cy="7" r="0.6" fill="currentColor"/></svg>',
     twitter: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><text x="12" y="16" text-anchor="middle" font-size="10" fill="currentColor" stroke="none" font-family="sans-serif">X</text></svg>',
-    pinterest: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><text x="12" y="16.5" text-anchor="middle" font-size="11" fill="currentColor" stroke="none" font-family="sans-serif">p</text></svg>'
+    pinterest: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><text x="12" y="16.5" text-anchor="middle" font-size="11" fill="currentColor" stroke="none" font-family="sans-serif">p</text></svg>',
+    'message-circle': '<svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 1 3.2 6.4L4 20l1.3-3.5A8 8 0 0 1 4 12z"/></svg>',
+    x: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12"/><path d="M18 6 6 18"/></svg>'
   };
   document.querySelectorAll('i[data-icon]').forEach(el => {
     const name = el.getAttribute('data-icon');
@@ -327,6 +329,132 @@ document.addEventListener('DOMContentLoaded', () => {
       btn.textContent = 'Subscribed ✓';
       input.value = '';
       setTimeout(() => { btn.textContent = original; }, 2500);
+    });
+  }
+
+  /* ---------- Message Us modal + Google Sheet submission ---------- */
+  // Paste the Google Apps Script "Web app" URL you get after deploying the
+  // script from the setup guide below. Looks like:
+  // https://script.google.com/macros/s/AKfycb.../exec
+  const GOOGLE_SHEET_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbwOOx11a_BeZd83JR9JENYaDEKLckQ9SxrpncR_6cnUrOcii79jMGjbbfg6Bse1wB9UhA/exec';
+
+  const messageModalOverlay = document.getElementById('messageModalOverlay');
+  const openMessageModalBtn = document.getElementById('openMessageModal');
+  const closeMessageModalBtn = document.getElementById('closeMessageModal');
+  const messageUsForm = document.getElementById('messageUsForm');
+  const messageFormStatus = document.getElementById('messageFormStatus');
+
+  const openMessageModal = () => {
+    if (!messageModalOverlay) return;
+    messageModalOverlay.classList.add('is-open');
+    document.body.style.overflow = 'hidden';
+  };
+  const closeMessageModal = () => {
+    if (!messageModalOverlay) return;
+    messageModalOverlay.classList.remove('is-open');
+    document.body.style.overflow = '';
+  };
+
+  if (openMessageModalBtn) openMessageModalBtn.addEventListener('click', openMessageModal);
+  if (closeMessageModalBtn) closeMessageModalBtn.addEventListener('click', closeMessageModal);
+  if (messageModalOverlay) {
+    messageModalOverlay.addEventListener('click', (e) => {
+      if (e.target === messageModalOverlay) closeMessageModal();
+    });
+  }
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && messageModalOverlay && messageModalOverlay.classList.contains('is-open')) {
+      closeMessageModal();
+    }
+  });
+
+  const MAX_IMAGE_BYTES = 4 * 1024 * 1024; // 4 MB
+
+  const readFileAsBase64 = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      // reader.result looks like "data:image/png;base64,AAAA..." — keep only the base64 part.
+      const base64 = String(reader.result).split(',')[1] || '';
+      resolve(base64);
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+
+  if (messageUsForm) {
+    messageUsForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      if (!GOOGLE_SHEET_WEBAPP_URL || GOOGLE_SHEET_WEBAPP_URL.indexOf('PASTE_YOUR') === 0) {
+        messageFormStatus.textContent = 'Form is not connected yet — add the Google Sheet web app URL in script.js.';
+        messageFormStatus.className = 'form-status error';
+        return;
+      }
+
+      const imageInput = document.getElementById('msgImage');
+      const imageFile = imageInput && imageInput.files && imageInput.files[0];
+
+      if (imageFile && imageFile.size > MAX_IMAGE_BYTES) {
+        messageFormStatus.textContent = 'That photo is over 4 MB — please choose a smaller image.';
+        messageFormStatus.className = 'form-status error';
+        return;
+      }
+
+      const submitBtn = messageUsForm.querySelector('button[type="submit"]');
+      const originalLabel = submitBtn.textContent;
+      submitBtn.disabled = true;
+      submitBtn.textContent = imageFile ? 'Uploading photo…' : 'Sending…';
+      messageFormStatus.textContent = '';
+      messageFormStatus.className = 'form-status';
+
+      const formData = new FormData();
+      formData.append('name', messageUsForm.querySelector('#msgName').value);
+      formData.append('phone', messageUsForm.querySelector('#msgPhone').value);
+      formData.append('message', messageUsForm.querySelector('#msgMessage').value);
+
+      try {
+        if (imageFile) {
+          const base64 = await readFileAsBase64(imageFile);
+          formData.append('imageBase64', base64);
+          formData.append('imageName', imageFile.name);
+          formData.append('imageMime', imageFile.type || 'image/jpeg');
+        }
+      } catch (err) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalLabel;
+        messageFormStatus.textContent = "Couldn't read that photo — please try a different file.";
+        messageFormStatus.className = 'form-status error';
+        return;
+      }
+
+      submitBtn.textContent = 'Sending…';
+
+      // Apps Script web apps don't return CORS headers, so the browser can't
+      // read the response — "no-cors" lets the request go through anyway;
+      // the row is written to the sheet even though we can't read the reply.
+      fetch(GOOGLE_SHEET_WEBAPP_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        body: formData
+      })
+        .then(() => {
+          submitBtn.textContent = 'Message Sent ✓';
+          messageFormStatus.textContent = "Thank you! We'll get back to you shortly.";
+          messageFormStatus.className = 'form-status success';
+          messageUsForm.reset();
+          setTimeout(() => {
+            closeMessageModal();
+            submitBtn.textContent = originalLabel;
+            submitBtn.disabled = false;
+            messageFormStatus.textContent = '';
+          }, 2000);
+        })
+        .catch(() => {
+          submitBtn.textContent = originalLabel;
+          submitBtn.disabled = false;
+          messageFormStatus.textContent = 'Something went wrong. Please try again or call us directly.';
+          messageFormStatus.className = 'form-status error';
+        });
     });
   }
 

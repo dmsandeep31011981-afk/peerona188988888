@@ -279,8 +279,43 @@
         <span>Mon–Sat 9am–8pm · Sun 10am–6pm</span>
       </div>
     </div>
+
+    <div class="contact-cta reveal">
+      <p>Prefer to type it out? Send us a quick note and we'll get back to you.</p>
+      <button type="button" class="btn btn-primary btn-lg" id="openMessageModal">
+        <i data-icon="message-circle"></i> Message Us
+      </button>
+    </div>
   </div>
 </section>
+
+<!-- ===== Message Us Modal ===== -->
+<div class="modal-overlay" id="messageModalOverlay">
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="messageModalTitle">
+    <button type="button" class="modal-close" id="closeMessageModal" aria-label="Close">
+      <i data-icon="x"></i>
+    </button>
+    <h3 id="messageModalTitle">Send Us a Message</h3>
+    <p class="modal-sub">Fill in your details and we'll reach out shortly.</p>
+    <form id="messageUsForm" class="message-form">
+      <label for="msgName">Name</label>
+      <input type="text" id="msgName" name="name" placeholder="Your name" required>
+
+      <label for="msgPhone">Phone Number</label>
+      <input type="tel" id="msgPhone" name="phone" placeholder="Your phone number" required pattern="[0-9+\s\(\)\-]{7,}">
+
+      <label for="msgMessage">Message</label>
+      <textarea id="msgMessage" name="message" rows="4" placeholder="How can we help?" required></textarea>
+
+      <label for="msgImage">Photo (optional)</label>
+      <input type="file" id="msgImage" name="image" accept="image/*">
+      <span class="form-hint">Up to 4 MB. JPG or PNG works best.</span>
+
+      <button type="submit" class="btn btn-primary btn-block btn-lg">Send Message</button>
+      <p class="form-status" id="messageFormStatus" aria-live="polite"></p>
+    </form>
+  </div>
+</div>
 
 <!-- ===== Newsletter ===== -->
 <section class="newsletter">
