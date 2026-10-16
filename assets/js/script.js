@@ -346,6 +346,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const openMessageModal = () => {
     if (!messageModalOverlay) return;
+    if (messageFormStatus) {
+      messageFormStatus.textContent = '';
+      messageFormStatus.className = 'form-status';
+    }
+    if (messageUsForm) {
+      const resetBtn = messageUsForm.querySelector('button[type="submit"]');
+      if (resetBtn) {
+        resetBtn.disabled = false;
+        resetBtn.textContent = 'Send Message';
+      }
+    }
     messageModalOverlay.classList.add('is-open');
     document.body.style.overflow = 'hidden';
   };
@@ -393,6 +404,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const imageInput = document.getElementById('msgImage');
       const imageFile = imageInput && imageInput.files && imageInput.files[0];
+      const imageInput2 = document.getElementById('msgImage2');
+      const imageFile2 = imageInput2 && imageInput2.files && imageInput2.files[0];
 
       if (imageFile && imageFile.size > MAX_IMAGE_BYTES) {
         messageFormStatus.textContent = 'That photo is over 4 MB — please choose a smaller image.';
@@ -400,10 +413,16 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
+      if (imageFile2 && imageFile2.size > MAX_IMAGE_BYTES) {
+        messageFormStatus.textContent = 'That second photo is over 4 MB — please choose a smaller image.';
+        messageFormStatus.className = 'form-status error';
+        return;
+      }
+
       const submitBtn = messageUsForm.querySelector('button[type="submit"]');
       const originalLabel = submitBtn.textContent;
       submitBtn.disabled = true;
-      submitBtn.textContent = imageFile ? 'Uploading photo…' : 'Sending…';
+      submitBtn.textContent = (imageFile || imageFile2) ? 'Uploading photo…' : 'Sending…';
       messageFormStatus.textContent = '';
       messageFormStatus.className = 'form-status';
 
@@ -418,6 +437,12 @@ document.addEventListener('DOMContentLoaded', () => {
           formData.append('imageBase64', base64);
           formData.append('imageName', imageFile.name);
           formData.append('imageMime', imageFile.type || 'image/jpeg');
+        }
+        if (imageFile2) {
+          const base64b = await readFileAsBase64(imageFile2);
+          formData.append('image2Base64', base64b);
+          formData.append('image2Name', imageFile2.name);
+          formData.append('image2Mime', imageFile2.type || 'image/jpeg');
         }
       } catch (err) {
         submitBtn.disabled = false;
@@ -439,15 +464,10 @@ document.addEventListener('DOMContentLoaded', () => {
       })
         .then(() => {
           submitBtn.textContent = 'Message Sent ✓';
-          messageFormStatus.textContent = "Thank you! We'll get back to you shortly.";
+          submitBtn.disabled = true;
+          messageFormStatus.textContent = 'Message sent';
           messageFormStatus.className = 'form-status success';
           messageUsForm.reset();
-          setTimeout(() => {
-            closeMessageModal();
-            submitBtn.textContent = originalLabel;
-            submitBtn.disabled = false;
-            messageFormStatus.textContent = '';
-          }, 2000);
         })
         .catch(() => {
           submitBtn.textContent = originalLabel;
