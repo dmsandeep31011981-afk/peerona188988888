@@ -154,18 +154,22 @@ document.addEventListener('DOMContentLoaded', () => {
   /* ---------- Glimpse-style coverflow carousel (reusable) ----------
      Powers both the Gallery's "A Glimpse of Your Retreat" strip and the
      "Explore Our Signature Treatments" strip, with identical behavior:
-     3 visible slides, autoplay, pause-on-hover, click-to-select, the
-     mobile left-bias/clamp logic, and (when an anchor element id is
-     given) centering the lead slide under a heading letter on desktop. */
-  const initGlimpseCarousel = (carouselId, trackId, anchorId) => {
+     3 visible slides, autoplay, pause-on-hover, click-to-select, drag/
+     swipe navigation (mouse pull on desktop, thumb swipe on mobile) with
+     flick momentum, the mobile left-bias/clamp logic, and (when an
+     anchor element id is given) centering the lead slide under a
+     heading letter on desktop. */
+  const initGlimpseCarousel = (carouselId, trackId, anchorId, initialIndex = 0) => {
     const glimpseCarousel = document.getElementById(carouselId);
     const glimpseTrack = document.getElementById(trackId);
     if (!glimpseCarousel || !glimpseTrack) return;
 
     const glimpseSlides = Array.from(glimpseTrack.querySelectorAll('.glimpse-slide'));
     const total = glimpseSlides.length;
-    let current = 0;
+    let current = total ? ((initialIndex % total) + total) % total : 0;
     let glimpseTimer = null;
+    let currentStep = 0;
+    let dragOffset = 0;
 
     const wrapDiff = (diff, n) => {
       let d = diff % n;
@@ -199,6 +203,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const gap = Math.max(20, baseWidth * 0.14);
         step = (baseWidth / 2) + (baseWidth * SIDE_SCALE / 2) + gap;
       }
+      currentStep = step;
 
       const carouselRect = glimpseCarousel.getBoundingClientRect();
       const carouselCenterX = carouselRect.left + carouselRect.width / 2;
@@ -241,7 +246,7 @@ document.addEventListener('DOMContentLoaded', () => {
         let scale = 1, opacity = 1, blur = 'none';
         if (abs === 1) { scale = SIDE_SCALE; opacity = 0.8; blur = 'brightness(0.85)'; }
         else if (abs >= 2) { scale = 0.6; opacity = 0; blur = 'brightness(0.8)'; }
-        slide.style.transform = `translateX(${diff * step + alignOffset}px) scale(${scale})`;
+        slide.style.transform = `translateX(${diff * step + alignOffset + dragOffset}px) scale(${scale})`;
         slide.style.opacity = opacity;
         slide.style.filter = blur;
         slide.style.zIndex = String(10 - abs);
@@ -272,17 +277,28 @@ document.addEventListener('DOMContentLoaded', () => {
     // and only play when neither is blocking it.
     let isHovered = false;
     let isVisible = false;
+    let isDragging = false;
     const updatePlayState = () => {
-      if (isVisible && !isHovered) startGlimpse();
+      if (isVisible && !isHovered && !isDragging) startGlimpse();
       else stopGlimpse();
     };
 
+    let suppressNextClick = false;
     glimpseSlides.forEach((slide, i) => {
       slide.addEventListener('click', () => {
         current = i;
         renderGlimpse();
       });
     });
+    // A drag that moved the carousel shouldn't also register as a click on
+    // whichever slide happened to be under the pointer when it was released.
+    glimpseCarousel.addEventListener('click', (e) => {
+      if (suppressNextClick) {
+        suppressNextClick = false;
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    }, true);
 
     // Only pause-on-hover on devices that actually have a real mouse.
     // On touch devices, tapping a slide (to select it) fires a synthetic
@@ -295,6 +311,126 @@ document.addEventListener('DOMContentLoaded', () => {
       glimpseCarousel.addEventListener('mouseenter', () => { isHovered = true; updatePlayState(); });
       glimpseCarousel.addEventListener('mouseleave', () => { isHovered = false; updatePlayState(); });
     }
+
+    /* ---------- Drag / swipe navigation ----------
+       One Pointer Events implementation covers both a mouse pull on
+       desktop and a thumb swipe on mobile. The slides track the pointer
+       1:1 while dragging (no transition), then snap to the nearest slide
+       on release, factoring in how fast the pointer was moving so a
+       quick flick carries on past one slide — the way it does in most
+       other apps (a slow drag settles on the next slide; a fast flick
+       can land 2-3 slides further on). A gesture that turns out to be
+       mostly vertical lets go immediately, so scrolling the page over
+       the carousel still works normally. */
+    const DRAG_DECIDE_PX = 6;     // movement before committing to a direction
+    const MAX_FLING_SLIDES = 3;   // cap how far one fast flick can jump
+    const MOMENTUM_MS = 200;      // how far ahead velocity gets projected
+    const SNAP_TRANSITION = 'transform 0.5s cubic-bezier(.22,.61,.36,1), opacity 0.5s ease, filter 0.5s ease';
+
+    let pointerId = null;
+    let dragStartX = 0;
+    let dragStartY = 0;
+    let directionLocked = false;
+    let horizontalDrag = false;
+    let moveSamples = [];
+    let renderQueued = false;
+
+    const queueRender = () => {
+      if (renderQueued) return;
+      renderQueued = true;
+      requestAnimationFrame(() => { renderQueued = false; renderGlimpse(); });
+    };
+
+    const beginHorizontalDrag = (e) => {
+      horizontalDrag = true;
+      isDragging = true;
+      updatePlayState();
+      glimpseTrack.classList.add('is-dragging');
+      glimpseCarousel.classList.add('is-dragging');
+      try { glimpseCarousel.setPointerCapture(e.pointerId); } catch (err) { /* not critical */ }
+    };
+
+    const onPointerDown = (e) => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      pointerId = e.pointerId;
+      dragStartX = e.clientX;
+      dragStartY = e.clientY;
+      directionLocked = false;
+      horizontalDrag = false;
+      dragOffset = 0;
+      moveSamples = [{ x: e.clientX, t: performance.now() }];
+    };
+
+    const onPointerMove = (e) => {
+      if (pointerId === null || e.pointerId !== pointerId) return;
+      const dx = e.clientX - dragStartX;
+      const dy = e.clientY - dragStartY;
+
+      if (!directionLocked) {
+        if (Math.abs(dx) < DRAG_DECIDE_PX && Math.abs(dy) < DRAG_DECIDE_PX) return;
+        directionLocked = true;
+        if (Math.abs(dx) <= Math.abs(dy)) {
+          // Mostly vertical: this is a page scroll, not a carousel drag.
+          pointerId = null;
+          return;
+        }
+        beginHorizontalDrag(e);
+      }
+      if (!horizontalDrag) return;
+
+      dragOffset = dx;
+      moveSamples.push({ x: e.clientX, t: performance.now() });
+      if (moveSamples.length > 6) moveSamples.shift();
+      queueRender();
+      e.preventDefault();
+    };
+
+    const endDrag = (e) => {
+      if (pointerId === null || (e && e.pointerId !== pointerId)) return;
+      pointerId = null;
+
+      if (!horizontalDrag) return;
+      horizontalDrag = false;
+      isDragging = false;
+      glimpseTrack.classList.remove('is-dragging');
+      glimpseCarousel.classList.remove('is-dragging');
+
+      const last = moveSamples[moveSamples.length - 1];
+      const first = moveSamples[0];
+      const dt = Math.max(1, last.t - first.t);
+      const velocity = (last.x - first.x) / dt; // px per ms
+      const projected = dragOffset + velocity * MOMENTUM_MS;
+      const step = currentStep || 1;
+
+      let slidesToMove = Math.round(-projected / step);
+      if (slidesToMove === 0 && Math.abs(dragOffset) > step * 0.15) {
+        slidesToMove = dragOffset < 0 ? 1 : -1;
+      }
+      slidesToMove = Math.max(-MAX_FLING_SLIDES, Math.min(MAX_FLING_SLIDES, slidesToMove));
+
+      if (slidesToMove !== 0) {
+        current = ((current + slidesToMove) % total + total) % total;
+        suppressNextClick = true;
+      }
+
+      dragOffset = 0;
+      glimpseSlides.forEach(slide => { slide.style.transition = SNAP_TRANSITION; });
+      renderGlimpse();
+      clearTimeout(glimpseCarousel._snapResetTimer);
+      glimpseCarousel._snapResetTimer = setTimeout(() => {
+        glimpseSlides.forEach(slide => { slide.style.transition = ''; });
+      }, 520);
+
+      updatePlayState();
+    };
+
+    glimpseCarousel.addEventListener('pointerdown', onPointerDown);
+    glimpseCarousel.addEventListener('pointermove', onPointerMove);
+    glimpseCarousel.addEventListener('pointerup', endDrag);
+    glimpseCarousel.addEventListener('pointercancel', endDrag);
+    // Native image drag-and-drop would otherwise fight with the pointer
+    // drag above (a ghost image icon instead of the carousel moving).
+    glimpseCarousel.addEventListener('dragstart', (e) => e.preventDefault());
 
     const visibilityObserver = new IntersectionObserver((entries) => {
       entries.forEach((entry) => {
@@ -317,7 +453,7 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   initGlimpseCarousel('glimpseCarousel', 'glimpseTrack', 'glimpseAnchor');
-  initGlimpseCarousel('treatmentsCarousel', 'treatmentsTrack', null);
+  initGlimpseCarousel('treatmentsCarousel', 'treatmentsTrack', null, 1); // 1 = treatment-shirodhara, centered on load
 
   /* ---------- Newsletter form ---------- */
   const newsletterForm = document.getElementById('newsletterForm');

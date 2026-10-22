@@ -344,6 +344,9 @@ section { padding: 100px 0; }
   margin: 0 auto;
   padding: 0 24px;
   overflow: hidden;
+  touch-action: pan-y;
+  -webkit-user-select: none;
+  user-select: none;
 }
 .glimpse-track { position: relative; width: 100%; height: 100%; }
 .glimpse-slide {
@@ -355,9 +358,11 @@ section { padding: 100px 0; }
   box-shadow: var(--shadow-md);
   transition: transform 1.1s cubic-bezier(.4, 0, .2, 1), opacity 1.1s ease, filter 1.1s ease;
   will-change: transform, opacity;
-  cursor: pointer;
+  cursor: grab;
 }
-.glimpse-slide img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.glimpse-carousel.is-dragging .glimpse-slide { cursor: grabbing; }
+.glimpse-track.is-dragging .glimpse-slide { transition: none !important; }
+.glimpse-slide img { width: 100%; height: 100%; object-fit: cover; display: block; -webkit-user-drag: none; user-drag: none; }
 @media (prefers-reduced-motion: reduce) {
   .glimpse-slide { transition: none; }
 }
