@@ -23,7 +23,8 @@ document.addEventListener('DOMContentLoaded', () => {
     pinterest: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><text x="12" y="16.5" text-anchor="middle" font-size="11" fill="currentColor" stroke="none" font-family="sans-serif">p</text></svg>',
     'message-circle': '<svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 1 3.2 6.4L4 20l1.3-3.5A8 8 0 0 1 4 12z"/></svg>',
     video: '<svg viewBox="0 0 24 24"><rect x="2" y="6" width="14" height="12" rx="2"/><path d="M16 10l6-3.5v11L16 14"/></svg>',
-    x: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12"/><path d="M18 6 6 18"/></svg>'
+    x: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12"/><path d="M18 6 6 18"/></svg>',
+    calendar: '<svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="16" rx="2"/><path d="M3.5 10h17"/><path d="M8 3v4"/><path d="M16 3v4"/></svg>'
   };
   document.querySelectorAll('i[data-icon]').forEach(el => {
     const name = el.getAttribute('data-icon');
@@ -510,10 +511,178 @@ document.addEventListener('DOMContentLoaded', () => {
       if (e.target === messageModalOverlay) closeMessageModal();
     });
   }
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && messageModalOverlay && messageModalOverlay.classList.contains('is-open')) {
-      closeMessageModal();
+
+  /* ---------- Book Appointment modal ---------- */
+  const appointmentModalOverlay = document.getElementById('appointmentModalOverlay');
+  const openAppointmentModalBtn = document.getElementById('openAppointmentModal');
+  const closeAppointmentModalBtn = document.getElementById('closeAppointmentModal');
+  const appointmentForm = document.getElementById('appointmentForm');
+  const appointmentFormStatus = document.getElementById('appointmentFormStatus');
+  const apptDateInput = document.getElementById('apptDate');
+  const apptTimeSelect = document.getElementById('apptTime');
+
+  // IST "today" as YYYY-MM-DD — read from the browser's clock but expressed
+  // in India's timezone, regardless of the visitor's own.
+  const getISTDateString = (date) =>
+    new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(date || new Date());
+
+  // 10 AM-2 PM and 3 PM-8 PM, half-hour slots, with a 2-3 PM lunch break.
+  const TIME_SLOTS = (() => {
+    const pad = (n) => String(n).padStart(2, '0');
+    const label = (h, m) => {
+      const period = h < 12 ? 'AM' : 'PM';
+      let h12 = h % 12; if (h12 === 0) h12 = 12;
+      return h12 + ':' + (m === 0 ? '00' : m) + ' ' + period;
+    };
+    const slots = [];
+    const addSlot = (h, m) => {
+      const endH = m === 30 ? h + 1 : h;
+      const endM = m === 30 ? 0 : 30;
+      slots.push({
+        start: pad(h) + ':' + pad(m),
+        end: pad(endH) + ':' + pad(endM),
+        label: label(h, m) + ' - ' + label(endH, endM)
+      });
+    };
+    for (let h = 10; h < 14; h++) { addSlot(h, 0); addSlot(h, 30); }
+    for (let h = 15; h < 20; h++) { addSlot(h, 0); addSlot(h, 30); }
+    return slots;
+  })();
+
+  const populateTimeSlots = () => {
+    if (!apptTimeSelect) return;
+    apptTimeSelect.innerHTML = '<option value="">Select a time slot</option>' +
+      TIME_SLOTS.map((s) => '<option value="' + s.start + '">' + s.label + '</option>').join('');
+  };
+
+  // Greys out slots already booked for the chosen date so a patient can't
+  // even select a taken slot; the server still re-checks on submit in case
+  // someone else grabs the same slot in the meantime.
+  const refreshSlotAvailability = async () => {
+    if (!apptTimeSelect || !apptDateInput || !apptDateInput.value) return;
+    if (!GOOGLE_SHEET_WEBAPP_URL || GOOGLE_SHEET_WEBAPP_URL.indexOf('PASTE_YOUR') === 0) return;
+    try {
+      const res = await fetch(GOOGLE_SHEET_WEBAPP_URL + '?action=availability&date=' + encodeURIComponent(apptDateInput.value));
+      const data = await res.json();
+      const booked = (data && data.bookedSlots) || [];
+      const previousValue = apptTimeSelect.value;
+      Array.from(apptTimeSelect.options).forEach((opt) => {
+        if (!opt.value) return;
+        const slot = TIME_SLOTS.find((s) => s.start === opt.value);
+        const isBooked = booked.indexOf(opt.value) !== -1;
+        opt.disabled = isBooked;
+        opt.textContent = isBooked ? (slot.label + ' (Booked)') : slot.label;
+      });
+      if (previousValue && booked.indexOf(previousValue) !== -1) apptTimeSelect.value = '';
+    } catch (err) {
+      // Availability check is a nicety — if it fails, slots just stay
+      // selectable and the server still blocks a real conflict on submit.
     }
+  };
+
+  const openAppointmentModal = () => {
+    if (!appointmentModalOverlay) return;
+    if (appointmentFormStatus) {
+      appointmentFormStatus.textContent = '';
+      appointmentFormStatus.className = 'form-status';
+    }
+    const resetBtn = appointmentForm && appointmentForm.querySelector('button[type="submit"]');
+    if (resetBtn) {
+      resetBtn.disabled = false;
+      resetBtn.textContent = 'Confirm Appointment';
+    }
+    populateTimeSlots();
+    if (apptDateInput) {
+      const today = getISTDateString();
+      apptDateInput.min = today;
+      if (!apptDateInput.value || apptDateInput.value < today) apptDateInput.value = today;
+    }
+    refreshSlotAvailability();
+    appointmentModalOverlay.classList.add('is-open');
+    document.body.style.overflow = 'hidden';
+  };
+  const closeAppointmentModal = () => {
+    if (!appointmentModalOverlay) return;
+    appointmentModalOverlay.classList.remove('is-open');
+    document.body.style.overflow = '';
+  };
+
+  if (openAppointmentModalBtn) openAppointmentModalBtn.addEventListener('click', openAppointmentModal);
+  if (closeAppointmentModalBtn) closeAppointmentModalBtn.addEventListener('click', closeAppointmentModal);
+  if (appointmentModalOverlay) {
+    appointmentModalOverlay.addEventListener('click', (e) => {
+      if (e.target === appointmentModalOverlay) closeAppointmentModal();
+    });
+  }
+  if (apptDateInput) apptDateInput.addEventListener('change', refreshSlotAvailability);
+
+  if (appointmentForm) {
+    appointmentForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      if (!GOOGLE_SHEET_WEBAPP_URL || GOOGLE_SHEET_WEBAPP_URL.indexOf('PASTE_YOUR') === 0) {
+        appointmentFormStatus.textContent = 'Form is not connected yet — add the Google Sheet web app URL in script.js.';
+        appointmentFormStatus.className = 'form-status error';
+        return;
+      }
+
+      const slot = TIME_SLOTS.find((s) => s.start === apptTimeSelect.value);
+      if (!slot) {
+        appointmentFormStatus.textContent = 'Please choose a booking time.';
+        appointmentFormStatus.className = 'form-status error';
+        return;
+      }
+
+      const submitBtn = appointmentForm.querySelector('button[type="submit"]');
+      const originalLabel = submitBtn.textContent;
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Booking…';
+      appointmentFormStatus.textContent = '';
+      appointmentFormStatus.className = 'form-status';
+
+      const formData = new FormData();
+      formData.append('formType', 'appointment');
+      formData.append('name', appointmentForm.querySelector('#apptName').value);
+      formData.append('phone', appointmentForm.querySelector('#apptPhone').value);
+      formData.append('date', apptDateInput.value);
+      formData.append('timeSlotStart', slot.start);
+      formData.append('timeSlotEnd', slot.end);
+      formData.append('timeSlotLabel', slot.label);
+
+      try {
+        const res = await fetch(GOOGLE_SHEET_WEBAPP_URL, { method: 'POST', body: formData });
+        const data = await res.json();
+
+        if (data.result === 'success') {
+          submitBtn.textContent = 'Appointment Booked ✓';
+          appointmentFormStatus.textContent = 'Booked for ' + apptDateInput.value + ', ' + slot.label + '.';
+          appointmentFormStatus.className = 'form-status success';
+          setTimeout(() => {
+            appointmentForm.reset();
+            closeAppointmentModal();
+          }, 1800);
+        } else if (data.result === 'conflict') {
+          submitBtn.disabled = false;
+          submitBtn.textContent = originalLabel;
+          appointmentFormStatus.textContent = data.message || 'That time slot is already booked — please choose another.';
+          appointmentFormStatus.className = 'form-status error';
+          refreshSlotAvailability();
+        } else {
+          throw new Error((data && (data.message || data.error)) || 'Unknown error');
+        }
+      } catch (err) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalLabel;
+        appointmentFormStatus.textContent = 'Something went wrong. Please try again or call us directly.';
+        appointmentFormStatus.className = 'form-status error';
+      }
+    });
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    if (messageModalOverlay && messageModalOverlay.classList.contains('is-open')) closeMessageModal();
+    if (appointmentModalOverlay && appointmentModalOverlay.classList.contains('is-open')) closeAppointmentModal();
   });
 
   const MAX_IMAGE_BYTES = 4 * 1024 * 1024; // 4 MB
@@ -539,27 +708,28 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
-      const imageInput = document.getElementById('msgImage');
-      const imageFile = imageInput && imageInput.files && imageInput.files[0];
-      const imageInput2 = document.getElementById('msgImage2');
-      const imageFile2 = imageInput2 && imageInput2.files && imageInput2.files[0];
+      // Up to 4 optional photos: msgImage/msgImage2/msgImage3/msgImage4,
+      // sent as image(Base64|Name|Mime), image2(...), image3(...), image4(...).
+      const IMAGE_FIELD_SUFFIXES = ['', '2', '3', '4'];
+      const imageFiles = IMAGE_FIELD_SUFFIXES.map((suffix) => {
+        const input = document.getElementById(`msgImage${suffix}`);
+        return input && input.files && input.files[0];
+      });
 
-      if (imageFile && imageFile.size > MAX_IMAGE_BYTES) {
-        messageFormStatus.textContent = 'That photo is over 4 MB — please choose a smaller image.';
-        messageFormStatus.className = 'form-status error';
-        return;
-      }
-
-      if (imageFile2 && imageFile2.size > MAX_IMAGE_BYTES) {
-        messageFormStatus.textContent = 'That second photo is over 4 MB — please choose a smaller image.';
-        messageFormStatus.className = 'form-status error';
-        return;
+      for (let i = 0; i < imageFiles.length; i++) {
+        const file = imageFiles[i];
+        if (file && file.size > MAX_IMAGE_BYTES) {
+          const label = i === 0 ? 'That photo' : `That photo ${i + 1}`;
+          messageFormStatus.textContent = `${label} is over 4 MB — please choose a smaller image.`;
+          messageFormStatus.className = 'form-status error';
+          return;
+        }
       }
 
       const submitBtn = messageUsForm.querySelector('button[type="submit"]');
       const originalLabel = submitBtn.textContent;
       submitBtn.disabled = true;
-      submitBtn.textContent = (imageFile || imageFile2) ? 'Uploading photo…' : 'Sending…';
+      submitBtn.textContent = imageFiles.some(Boolean) ? 'Uploading photo…' : 'Sending…';
       messageFormStatus.textContent = '';
       messageFormStatus.className = 'form-status';
 
@@ -569,17 +739,14 @@ document.addEventListener('DOMContentLoaded', () => {
       formData.append('message', messageUsForm.querySelector('#msgMessage').value);
 
       try {
-        if (imageFile) {
-          const base64 = await readFileAsBase64(imageFile);
-          formData.append('imageBase64', base64);
-          formData.append('imageName', imageFile.name);
-          formData.append('imageMime', imageFile.type || 'image/jpeg');
-        }
-        if (imageFile2) {
-          const base64b = await readFileAsBase64(imageFile2);
-          formData.append('image2Base64', base64b);
-          formData.append('image2Name', imageFile2.name);
-          formData.append('image2Mime', imageFile2.type || 'image/jpeg');
+        for (let i = 0; i < imageFiles.length; i++) {
+          const file = imageFiles[i];
+          if (!file) continue;
+          const suffix = IMAGE_FIELD_SUFFIXES[i];
+          const base64 = await readFileAsBase64(file);
+          formData.append(`image${suffix}Base64`, base64);
+          formData.append(`image${suffix}Name`, file.name);
+          formData.append(`image${suffix}Mime`, file.type || 'image/jpeg');
         }
       } catch (err) {
         submitBtn.disabled = false;

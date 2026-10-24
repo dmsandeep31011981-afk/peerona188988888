@@ -1,0 +1,10 @@
+Place an appointment in first cell.
+It should launch a new window(similar to Message us window).
+The new window should contain fields Name,Phone Number,Date(This field should contain Current date from browser,of current
+offset,that is Indian offset zone) and Booking time(it should start from 10 AM to 2PM,between 2PM to 3 PM lunch.
+Again from 3 PM to 8PM.Booking time should times from above mentioned time with half an hour slots.
+These fields should store in an excel sheet Booked Appointments.
+Each of these fields should be separated by dates.
+Whenever a booking time already exists for a patient, the script should check the already existing date and for specific Booked time
+like 12PM-12.30PM say a patient already booked, it should prompt the user to choose alrenative booking time from booking time selection slots.
+When booked it should sent message to configured email and send these field details and add a event on the configured mail.

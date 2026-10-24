@@ -258,14 +258,20 @@
       <p class="section-sub">Have questions or want to plan your visit? Reach out any way that's easiest for you.</p>
     </div>
     <div class="contact-info-grid">
+      <button type="button" class="contact-card contact-card-link reveal" id="openAppointmentModal">
+        <div class="contact-icon"><i data-icon="calendar"></i></div>
+        <strong>Book Appointment</strong>
+        <span>Pick a date &amp; time slot</span>
+      </button>
       <div class="contact-card reveal">
         <div class="contact-icon"><i data-icon="map-pin"></i></div>
         <strong>Visit Us</strong>
-        <span>221 Wellness Avenue, Serenity Hills</span>
+        <span>221,Rajajinagar,bangalore</span>
       </div>
       <a href="tel:+919164422444" class="contact-card contact-card-link reveal">
         <div class="contact-icon"><i data-icon="phone"></i></div>
         <strong>Call Us</strong>
+        <span>Dr. Lokesh</span>
         <span>+91 (91644 22444)</span>
       </a>
       <a href="mailto:doctor.lokesh@gmail.com" class="contact-card contact-card-link reveal">
@@ -280,8 +286,7 @@
       </div>
       <a href="https://wa.me/919164422444?text=Hi%20Dr.%20Lokesh%2C%20I%27d%20like%20to%20start%20a%20WhatsApp%20video%20call." class="contact-card contact-card-link reveal" target="_blank" rel="noopener">
         <div class="contact-icon"><i data-icon="video"></i></div>
-        <strong>Make a WhatsApp Video Request Call to Dr. Lokesh Now!!!</strong>
-        <span>Tap to open WhatsApp and request a video call</span>
+        <strong style="font-weight: normal;"><b>Make a WhatsApp Video request</b> call to <b>Doctor</b> Now from your WhatsApp account!!!</strong>
       </a>
     </div>
 
@@ -300,6 +305,7 @@
     <button type="button" class="modal-close" id="closeMessageModal" aria-label="Close">
       <i data-icon="x"></i>
     </button>
+    <div class="modal-scroll-content">
     <h3 id="messageModalTitle">Send Us a Message</h3>
     <p class="modal-sub">Fill in your details and we'll reach out shortly.</p>
     <form id="messageUsForm" class="message-form">
@@ -320,9 +326,50 @@
       <input type="file" id="msgImage2" name="image2" accept="image/*">
       <span class="form-hint">Up to 4 MB. JPG or PNG works best.</span>
 
+      <label for="msgImage3">Upload Photo 3 (Problem you are facing) to doctor (optional)</label>
+      <input type="file" id="msgImage3" name="image3" accept="image/*">
+      <span class="form-hint">Up to 4 MB. JPG or PNG works best.</span>
+
+      <label for="msgImage4">Upload Photo 4 (Problem you are facing) to doctor (optional)</label>
+      <input type="file" id="msgImage4" name="image4" accept="image/*">
+      <span class="form-hint">Up to 4 MB. JPG or PNG works best.</span>
+
       <button type="submit" class="btn btn-primary btn-block btn-lg">Send Message</button>
       <p class="form-status" id="messageFormStatus" aria-live="polite"></p>
     </form>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Book Appointment Modal ===== -->
+<div class="modal-overlay" id="appointmentModalOverlay">
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="appointmentModalTitle">
+    <button type="button" class="modal-close" id="closeAppointmentModal" aria-label="Close">
+      <i data-icon="x"></i>
+    </button>
+    <div class="modal-scroll-content">
+    <h3 id="appointmentModalTitle">Book an Appointment</h3>
+    <p class="modal-sub">Pick a date and time that works for you — we'll confirm it right away.</p>
+    <form id="appointmentForm" class="message-form">
+      <label for="apptName">Name</label>
+      <input type="text" id="apptName" name="name" placeholder="Your name" required>
+
+      <label for="apptPhone">Phone Number</label>
+      <input type="tel" id="apptPhone" name="phone" placeholder="Your phone number" required pattern="[0-9+\s\(\)\-]{7,}">
+
+      <label for="apptDate">Date</label>
+      <input type="date" id="apptDate" name="date" required>
+
+      <label for="apptTime">Booking Time</label>
+      <select id="apptTime" name="timeSlot" required>
+        <option value="">Select a time slot</option>
+      </select>
+      <span class="form-hint">10 AM–2 PM &amp; 3 PM–8 PM, 30-minute slots (2–3 PM is lunch break). Already-booked slots are grayed out.</span>
+
+      <button type="submit" class="btn btn-primary btn-block btn-lg">Confirm Appointment</button>
+      <p class="form-status" id="appointmentFormStatus" aria-live="polite"></p>
+    </form>
+    </div>
   </div>
 </div>
 

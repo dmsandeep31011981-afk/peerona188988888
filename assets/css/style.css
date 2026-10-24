@@ -400,20 +400,21 @@ section { padding: 100px 0; }
 
 /* ---------- Contact Info ---------- */
 .contact-info { background: var(--white); }
-.contact-info-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px; }
+.contact-info-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .contact-card {
   background: var(--cream); border-radius: var(--radius-md); padding: 20px 14px;
   text-align: center; transition: var(--transition);
 }
 .contact-card:hover { transform: translateY(-6px); box-shadow: var(--shadow-md); background: var(--white); }
 .contact-card-link { display: block; color: inherit; text-decoration: none; cursor: pointer; }
+button.contact-card-link { width: 100%; border: none; font: inherit; }
 .contact-icon {
   width: 42px; height: 42px; margin: 0 auto 12px; border-radius: 50%;
   background: #ff3300; color: var(--white); display: flex; align-items: center; justify-content: center;
   font-size: 1.05rem; padding: 9px;
 }
 .contact-card strong { display: block; font-size: 0.86rem; margin-bottom: 5px; line-height: 1.3; }
-.contact-card span { color: var(--text-light); font-size: 0.78rem; line-height: 1.3; }
+.contact-card span { display: block; color: var(--text-light); font-size: 0.78rem; line-height: 1.3; }
 
 .contact-cta {
   text-align: center; margin-top: 44px; padding-top: 36px; border-top: 1px solid var(--cream-dark);
@@ -433,13 +434,15 @@ section { padding: 100px 0; }
   background: var(--white); border-radius: var(--radius-lg); box-shadow: var(--shadow-md);
   padding: 44px 36px; max-width: 460px; width: 100%; position: relative;
   transform: translateY(14px) scale(0.97); opacity: 0; transition: transform 0.3s ease, opacity 0.3s ease;
-  max-height: 90vh; overflow-y: auto;
+  max-height: 90vh; overflow: hidden; display: flex; flex-direction: column;
 }
 .modal-overlay.is-open .modal-box { transform: translateY(0) scale(1); opacity: 1; }
+.modal-scroll-content { overflow-y: auto; flex: 1 1 auto; min-height: 0; }
 .modal-close {
   position: absolute; top: 18px; right: 18px; width: 36px; height: 36px; border-radius: 50%;
   border: none; background: var(--cream); color: var(--text-dark); display: flex;
   align-items: center; justify-content: center; cursor: pointer; transition: var(--transition);
+  z-index: 2; flex-shrink: 0;
 }
 .modal-close:hover { background: #ff3300; color: var(--white); }
 .modal-close i { width: 16px; height: 16px; }
@@ -447,14 +450,16 @@ section { padding: 100px 0; }
 .modal-sub { color: var(--text-light); font-size: 0.92rem; margin-bottom: 24px; }
 .message-form { display: flex; flex-direction: column; gap: 14px; }
 .message-form label { font-size: 0.85rem; font-weight: 600; color: var(--text-dark); margin-bottom: -8px; }
-.message-form input, .message-form textarea {
+.message-form input, .message-form textarea, .message-form select {
   width: 100%; padding: 13px 16px; border: 1px solid var(--cream-dark); border-radius: var(--radius-sm);
   font-family: var(--font-body); font-size: 0.94rem; color: var(--text-dark); background: var(--cream);
   transition: var(--transition); resize: vertical;
 }
-.message-form input:focus, .message-form textarea:focus {
+.message-form input:focus, .message-form textarea:focus, .message-form select:focus {
   outline: none; border-color: var(--blush-dark); background: var(--white);
 }
+.message-form select:invalid { color: var(--text-light); }
+.message-form select option:disabled { color: #b8b0ab; }
 .message-form input[type="file"] {
   padding: 10px 14px; border: 1.5px dashed var(--blush-dark); border-radius: var(--radius-sm);
   background: var(--cream); font-family: var(--font-body); font-size: 0.85rem; color: var(--text-dark);
