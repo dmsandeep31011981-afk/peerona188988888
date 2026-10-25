@@ -476,6 +476,45 @@ document.addEventListener('DOMContentLoaded', () => {
   // https://script.google.com/macros/s/AKfycb.../exec
   const GOOGLE_SHEET_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbwOOx11a_BeZd83JR9JENYaDEKLckQ9SxrpncR_6cnUrOcii79jMGjbbfg6Bse1wB9UhA/exec';
 
+  // Global site settings (clinic address, and the Google Maps link its
+  // "Visit Us" card / Book Appointment address row open) live in the
+  // "Settings" sheet tab, so they can be edited there without touching
+  // code. Fetched once on load; until it resolves (or if it fails) the
+  // hard-coded defaults already in the page markup are used instead.
+  const DEFAULT_MAPS_LINK = 'https://www.google.com/maps/search/?api=1&query=12.9865278%2C77.5501667';
+  const visitUsCard = document.getElementById('visitUsCard');
+  const apptClinicAddressBtn = document.getElementById('apptClinicAddressBtn');
+
+  function applyMapsLink(url) {
+    if (!url) return;
+    if (visitUsCard) visitUsCard.href = url;
+    if (apptClinicAddressBtn) apptClinicAddressBtn.dataset.mapsUrl = url;
+  }
+
+  if (apptClinicAddressBtn) {
+    apptClinicAddressBtn.addEventListener('click', () => {
+      window.open(apptClinicAddressBtn.dataset.mapsUrl || DEFAULT_MAPS_LINK, '_blank', 'noopener');
+    });
+  }
+
+  (function loadSiteConfig() {
+    if (!GOOGLE_SHEET_WEBAPP_URL || GOOGLE_SHEET_WEBAPP_URL.indexOf('PASTE_YOUR') === 0) return;
+    fetch(GOOGLE_SHEET_WEBAPP_URL + '?action=config')
+      .then((res) => res.json())
+      .then((config) => {
+        if (!config) return;
+        if (config.address) {
+          document.querySelectorAll('[data-config="address"]').forEach((el) => {
+            el.textContent = config.address;
+          });
+        }
+        if (config.mapslink) applyMapsLink(config.mapslink);
+      })
+      .catch(() => {
+        // Fetch failed — the hard-coded fallback text/link already in the page stays as-is.
+      });
+  })();
+
   const messageModalOverlay = document.getElementById('messageModalOverlay');
   const openMessageModalBtn = document.getElementById('openMessageModal');
   const closeMessageModalBtn = document.getElementById('closeMessageModal');
@@ -520,6 +559,18 @@ document.addEventListener('DOMContentLoaded', () => {
   const appointmentFormStatus = document.getElementById('appointmentFormStatus');
   const apptDateInput = document.getElementById('apptDate');
   const apptTimeSelect = document.getElementById('apptTime');
+
+  // Open the native date picker on a click or keyboard focus anywhere in
+  // the field, not just on the small calendar icon — showPicker() is
+  // supported in modern Chromium/Edge; older browsers just fall back to
+  // their normal date-field behavior (typing, or clicking the icon).
+  if (apptDateInput && typeof apptDateInput.showPicker === 'function') {
+    const openDatePicker = () => {
+      try { apptDateInput.showPicker(); } catch (err) { /* ignore: e.g. already open */ }
+    };
+    apptDateInput.addEventListener('click', openDatePicker);
+    apptDateInput.addEventListener('focus', openDatePicker);
+  }
 
   // IST "today" as YYYY-MM-DD — read from the browser's clock but expressed
   // in India's timezone, regardless of the visitor's own.
