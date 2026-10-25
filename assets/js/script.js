@@ -732,6 +732,23 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
+      // Email Id is optional, but if the patient typed something in, do a
+      // basic sanity check on the format before submitting (the browser's
+      // own type="email" validation already catches most of this, but we
+      // check again here so the message is consistent and works even if
+      // native validation is skipped, e.g. via autofill).
+      const apptEmailInput = appointmentForm.querySelector('#apptEmail');
+      const apptEmailValue = apptEmailInput ? apptEmailInput.value.trim() : '';
+      const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      apptEmailInput && apptEmailInput.classList.remove('field-invalid');
+      if (apptEmailValue && !EMAIL_PATTERN.test(apptEmailValue)) {
+        appointmentFormStatus.textContent = 'Please enter a valid email address, or leave it blank.';
+        appointmentFormStatus.className = 'form-status error';
+        apptEmailInput && apptEmailInput.classList.add('field-invalid');
+        apptEmailInput && apptEmailInput.focus();
+        return;
+      }
+
       const submitBtn = appointmentForm.querySelector('button[type="submit"]');
       const originalLabel = submitBtn.textContent;
       submitBtn.disabled = true;
@@ -743,6 +760,7 @@ document.addEventListener('DOMContentLoaded', () => {
       formData.append('formType', 'appointment');
       formData.append('name', appointmentForm.querySelector('#apptName').value);
       formData.append('phone', appointmentForm.querySelector('#apptPhone').value);
+      formData.append('email', apptEmailValue);
       formData.append('date', apptDateInput.value);
       formData.append('timeSlotStart', slot.start);
       formData.append('timeSlotEnd', slot.end);
@@ -759,7 +777,7 @@ document.addEventListener('DOMContentLoaded', () => {
           setTimeout(() => {
             appointmentForm.reset();
             closeAppointmentModal();
-          }, 1800);
+          }, 6000);
         } else if (data.result === 'conflict') {
           submitBtn.disabled = false;
           submitBtn.textContent = originalLabel;

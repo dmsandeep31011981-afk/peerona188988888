@@ -1,0 +1,29 @@
+Please make another page with same background for Doctor to view the Sections
+make the page name as loki.html which means this page can be viewed by Doctor Lokesh only.
+
+He can view page by entering url ...../loki.html
+
+
+Title of this page should Peerona's Dr.Lokesh Page.
+
+Below is the body of this page.
+
+1).Appointment Section
+On Clicking this should should dynamically show appointments of current and + days of appointments,there should be way to scroll past appointments and future appointments.These data should be picked from Messages excel sheet.
+There should be option to cancel appointments by Lokesh using this page,using this section.
+So there should be field(CancelledByDoctor) in Book Appointment sheet of message excel sheet.
+In this display of this section there should be column cancelled check box(for each appointment) showing tick means cancelled and
+unchecked means not cancelled.
+So if the doctor accessing this page if he unchecks or checks one or more appointments, there should be a button dynamically shown
+for the doctor to save these changes to excel sheet and also send 
+
+
+2).Messages section
+This section contains Messages sent to Doctor through Messages Us Section.
+
+On Clicking this should should dynamically show Messages of current and + days of Messages,there should be way to scroll past Messages and future Messages.These data should be picked from Messages excel sheet.
+For Photos uploaded by patients, there should be option to launch Another window showing photos(4 images if uploaded)
+which is scrollable.
+
+There should be option to reply here with a button for each messages, on clicking of this a window should be opened with textarea(about 1000 words) where doctor can reply to this message.
+There should be a button send reply, where this reply goes to InLineReply field in Messages sheet of Messages excel sheet.

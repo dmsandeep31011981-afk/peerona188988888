@@ -1,0 +1,126 @@
+/* =========================================================
+   PeerOna — Dr. Lokesh's private page (loki.html)
+   Relies on assets/css/style.css for color variables, fonts,
+   .btn / .modal- / .message-form / .form-status base styles.
+   ========================================================= */
+
+body.loki-page { background: var(--cream); }
+
+/* ---------- Passcode gate ---------- */
+.loki-gate {
+  position: fixed; inset: 0; background: var(--cream);
+  display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 500;
+}
+.loki-gate[hidden] { display: none; }
+.loki-gate-box {
+  background: var(--white); border-radius: var(--radius-lg); box-shadow: var(--shadow-md);
+  padding: 44px 36px; max-width: 420px; width: 100%; text-align: center;
+}
+.loki-gate-icon { font-size: 2.6rem; margin-bottom: 10px; }
+.loki-gate-box h1 { font-size: 1.5rem; margin-bottom: 8px; }
+.loki-gate-box .message-form { text-align: left; margin-top: 10px; }
+
+/* ---------- Header ---------- */
+.loki-header { background: var(--white); border-bottom: 1px solid var(--cream-dark); padding: 18px 0; }
+.loki-header-inner { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.loki-header .logo { font-family: var(--font-heading); font-weight: 700; font-size: 1.4rem; color: var(--text-dark); }
+.loki-header .logo span { color: #ff3300; }
+.loki-header .brand-tagline { display: block; font-size: 0.78rem; color: var(--text-light); margin-top: 2px; }
+.loki-lock-btn { display: inline-flex; align-items: center; gap: 6px; padding: 10px 18px; font-size: 0.85rem; }
+.loki-lock-btn i { width: 15px; height: 15px; }
+
+/* ---------- Layout ---------- */
+.loki-main { padding: 36px 0 80px; display: flex; flex-direction: column; gap: 24px; }
+.loki-section { background: var(--white); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); overflow: hidden; }
+.loki-section-toggle {
+  width: 100%; display: flex; align-items: center; gap: 14px; padding: 22px 26px;
+  font-family: var(--font-heading); font-size: 1.2rem; font-weight: 600; color: var(--text-dark);
+  background: var(--white); cursor: pointer; transition: var(--transition); text-align: left;
+}
+.loki-section-toggle:hover { background: var(--cream); }
+.loki-section-toggle i:first-child { width: 20px; height: 20px; color: #ff3300; flex-shrink: 0; }
+.loki-section-toggle span { flex: 1 1 auto; }
+.loki-chevron { width: 16px; height: 16px; flex-shrink: 0; transition: transform 0.25s ease; color: var(--text-light); }
+.loki-section-toggle[aria-expanded="true"] .loki-chevron { transform: rotate(180deg); }
+.loki-section-body { padding: 0 26px 26px; border-top: 1px solid var(--cream-dark); }
+
+/* ---------- Date-window nav ---------- */
+.loki-nav {
+  display: flex; align-items: center; justify-content: center; gap: 14px; flex-wrap: wrap;
+  padding: 20px 0 10px;
+}
+.loki-nav-btn { padding: 9px 16px; font-size: 0.82rem; }
+.loki-nav-label { font-weight: 600; color: var(--text-dark); font-size: 0.92rem; min-width: 160px; text-align: center; }
+
+.loki-empty { color: var(--text-light); font-size: 0.92rem; text-align: center; padding: 30px 0; }
+
+/* ---------- Appointment list ---------- */
+.loki-list { display: flex; flex-direction: column; gap: 10px; }
+.loki-date-group { margin-top: 18px; }
+.loki-date-group:first-child { margin-top: 6px; }
+.loki-date-group h4 {
+  font-size: 0.95rem; color: var(--text-light); font-family: var(--font-body); font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 10px; padding-bottom: 6px;
+  border-bottom: 1px dashed var(--cream-dark);
+}
+
+.appt-row {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  background: var(--cream); border-radius: var(--radius-sm); padding: 14px 18px; margin-bottom: 8px;
+  transition: var(--transition);
+}
+.appt-row.is-cancelled { background: #f7e9e8; opacity: 0.75; }
+.appt-row-info { display: flex; flex-direction: column; gap: 2px; min-width: 160px; flex: 1 1 200px; }
+.appt-row-info strong { font-size: 0.96rem; color: var(--text-dark); }
+.appt-row-info span { font-size: 0.82rem; color: var(--text-light); }
+.appt-row.is-cancelled .appt-row-info strong { text-decoration: line-through; }
+.appt-row-time { font-size: 0.86rem; font-weight: 600; color: var(--text-dark); white-space: nowrap; }
+.appt-row-cancel { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; color: var(--text-dark); cursor: pointer; white-space: nowrap; }
+.appt-row-cancel input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; accent-color: #ff3300; }
+
+.loki-save-bar {
+  position: sticky; bottom: 0; display: flex; align-items: center; justify-content: space-between;
+  gap: 14px; background: var(--text-dark); color: var(--cream); border-radius: var(--radius-sm);
+  padding: 14px 20px; margin-top: 18px;
+}
+.loki-save-bar span { font-size: 0.88rem; }
+.loki-save-bar .btn-primary { padding: 10px 22px; font-size: 0.85rem; }
+
+/* ---------- Message list ---------- */
+.msg-card { background: var(--cream); border-radius: var(--radius-sm); padding: 18px 20px; margin-bottom: 8px; }
+.msg-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
+.msg-card-head strong { font-size: 0.96rem; color: var(--text-dark); }
+.msg-card-head span { font-size: 0.8rem; color: var(--text-light); }
+.msg-card-body { font-size: 0.9rem; color: var(--text-dark); line-height: 1.6; margin-bottom: 12px; white-space: pre-wrap; }
+.msg-card-reply {
+  background: var(--white); border-left: 3px solid #ff3300; border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  padding: 10px 14px; font-size: 0.86rem; color: var(--text-dark); margin-bottom: 12px; white-space: pre-wrap;
+}
+.msg-card-reply strong { display: block; font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-light); margin-bottom: 4px; }
+.msg-card-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.msg-card-actions .btn { padding: 9px 16px; font-size: 0.8rem; }
+
+/* ---------- Photos modal ---------- */
+.loki-photos-box { max-width: 420px; }
+.loki-photos-scroll { display: flex; flex-direction: column; gap: 14px; max-height: 65vh; }
+.loki-photos-scroll img { width: 100%; border-radius: var(--radius-sm); box-shadow: var(--shadow-sm); }
+.loki-photos-empty { color: var(--text-light); font-size: 0.9rem; text-align: center; padding: 20px 0; }
+
+/* ---------- Reply modal ---------- */
+#replyTextarea { resize: vertical; min-height: 180px; }
+#replyWordCount.over-limit { color: #d6453d; font-weight: 600; }
+
+/* ---------- Mobile ---------- */
+@media (max-width: 640px) {
+  .loki-section-toggle { padding: 18px 18px; font-size: 1.05rem; }
+  .loki-section-body { padding: 0 16px 20px; }
+  .appt-row { padding: 12px 14px; }
+  .appt-row-time { order: 3; width: 100%; }
+  .appt-row-cancel { margin-left: auto; }
+  .loki-save-bar { flex-direction: column; align-items: stretch; text-align: center; }
+  .loki-nav-label { min-width: 0; width: 100%; order: -1; margin-bottom: 4px; }
+  .msg-card-head { flex-direction: column; align-items: flex-start; gap: 2px; }
+}
+@media (max-width: 480px) {
+  .loki-gate-box { padding: 32px 22px; }
+}
