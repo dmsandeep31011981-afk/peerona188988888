@@ -350,7 +350,10 @@
     <div class="modal-scroll-content">
     <h3 id="appointmentModalTitle">Book an Appointment</h3>
     <p class="modal-sub">Pick a date and time that works for you — we'll confirm it right away.</p>
-    <button type="button" class="appt-clinic-address" id="apptClinicAddressBtn" data-maps-url="https://www.google.com/maps/search/?api=1&amp;query=12.9865278%2C77.5501667" aria-label="Open clinic location in Google Maps"><i data-icon="map-pin"></i> <span id="apptClinicAddressText" data-config="address">221,Rajajinagar,bangalore</span></button>
+    <div class="appt-address-field">
+      <span class="appt-clinic-label">Clinic Address</span>
+      <button type="button" class="appt-clinic-address" id="apptClinicAddressBtn" data-maps-url="https://www.google.com/maps/search/?api=1&amp;query=12.9865278%2C77.5501667" aria-label="Open clinic location in Google Maps"><i data-icon="map-pin"></i> <span id="apptClinicAddressText" data-config="address">221,Rajajinagar,bangalore</span></button>
+    </div>
     <form id="appointmentForm" class="message-form">
       <label for="apptName">Name</label>
       <input type="text" id="apptName" name="name" placeholder="Your name" required>

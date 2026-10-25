@@ -560,16 +560,64 @@ document.addEventListener('DOMContentLoaded', () => {
   const apptDateInput = document.getElementById('apptDate');
   const apptTimeSelect = document.getElementById('apptTime');
 
-  // Open the native date picker on a click or keyboard focus anywhere in
-  // the field, not just on the small calendar icon — showPicker() is
-  // supported in modern Chromium/Edge; older browsers just fall back to
-  // their normal date-field behavior (typing, or clicking the icon).
-  if (apptDateInput && typeof apptDateInput.showPicker === 'function') {
+  // Toggle the native date picker open/closed on repeated clicks anywhere
+  // in the field, not just the small calendar icon — showPicker() is
+  // supported in modern Chromium/Edge/Safari; older browsers just fall
+  // back to their normal date-field behavior (typing, or clicking the
+  // icon). There's no standard "hide" API, so closing is done by blurring
+  // the field, which dismisses the picker in every browser that supports
+  // showPicker() in the first place.
+  //
+  // This custom open/close dance is for mouse/trackpad use only. On a
+  // touch device (phone or tablet), tapping a date field already opens
+  // the OS's own native picker (a full-screen wheel on iOS, a modal
+  // dialog on Android) automatically, with no JS needed — and that
+  // native UI can't be closed from JS (blur() does nothing to it, and on
+  // Android it blocks all other taps while open, so a "second tap to
+  // close" on the field is never actually received). Running our open
+  // logic on top of that native behavior was fighting it, which is why
+  // it looked broken on mobile. So this whole block is skipped on coarse
+  // (touch) pointers and the browser's built-in tap-to-open /
+  // tap-away-or-pick-a-date-to-close behavior is left alone — that's
+  // already the standard, working mobile experience.
+  const apptDateIsTouchDevice = window.matchMedia('(pointer: coarse)').matches;
+  if (apptDateInput && typeof apptDateInput.showPicker === 'function' && !apptDateIsTouchDevice) {
+    let apptDatePickerOpen = false;
+
     const openDatePicker = () => {
-      try { apptDateInput.showPicker(); } catch (err) { /* ignore: e.g. already open */ }
+      try {
+        apptDateInput.showPicker();
+        apptDatePickerOpen = true;
+      } catch (err) { /* ignore: e.g. already open, or blocked by the browser */ }
     };
-    apptDateInput.addEventListener('click', openDatePicker);
-    apptDateInput.addEventListener('focus', openDatePicker);
+    const closeDatePicker = () => {
+      apptDateInput.blur();
+      apptDatePickerOpen = false;
+    };
+
+    apptDateInput.addEventListener('click', () => {
+      if (apptDatePickerOpen) {
+        closeDatePicker();
+      } else {
+        openDatePicker();
+      }
+    });
+    // Keyboard equivalent of a click, for anyone tabbing to the field and
+    // pressing Enter/Space instead of using a mouse or touchscreen.
+    apptDateInput.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      e.preventDefault();
+      if (apptDatePickerOpen) {
+        closeDatePicker();
+      } else {
+        openDatePicker();
+      }
+    });
+    // Picking a date, or clicking/tapping away, closes the picker on its
+    // own — keep our toggle state in sync so the next click reopens it
+    // instead of trying (and failing) to close an already-closed picker.
+    apptDateInput.addEventListener('change', () => { apptDatePickerOpen = false; });
+    apptDateInput.addEventListener('blur', () => { apptDatePickerOpen = false; });
   }
 
   // IST "today" as YYYY-MM-DD — read from the browser's clock but expressed

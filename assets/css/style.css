@@ -448,17 +448,19 @@ button.contact-card-link { width: 100%; border: none; font: inherit; }
 .modal-close i { width: 16px; height: 16px; }
 .modal-box h3 { font-size: 1.5rem; margin-bottom: 6px; }
 .modal-sub { color: var(--text-light); font-size: 0.92rem; margin-bottom: 24px; }
+.appt-address-field { margin: -14px 0 20px; }
+.appt-clinic-label { display: block; font-size: 0.85rem; font-weight: 600; color: var(--text-dark); margin-bottom: 6px; }
 .appt-clinic-address {
   display: flex; align-items: center; gap: 8px; color: var(--text-dark); font-size: 0.88rem;
-  background: var(--cream); border-radius: var(--radius-sm); padding: 10px 14px; margin: -14px 0 20px;
+  background: var(--cream); border-radius: var(--radius-sm); padding: 10px 14px; margin: 0;
   border: none; width: 100%; text-align: left; font-family: inherit; cursor: pointer; transition: var(--transition);
 }
 .appt-clinic-address:hover, .appt-clinic-address:focus-visible { background: var(--cream-dark); }
 .appt-clinic-address i { width: 16px; height: 16px; flex-shrink: 0; color: #ff3300; }
 .appt-clinic-address span { text-decoration: underline; text-decoration-color: transparent; transition: text-decoration-color 0.2s ease; }
 .appt-clinic-address:hover span, .appt-clinic-address:focus-visible span { text-decoration-color: currentColor; }
-.message-form { display: flex; flex-direction: column; gap: 14px; }
-.message-form label { font-size: 0.85rem; font-weight: 600; color: var(--text-dark); margin-bottom: -8px; }
+.message-form { display: flex; flex-direction: column; gap: 20px; }
+.message-form label { font-size: 0.85rem; font-weight: 600; color: var(--text-dark); margin-bottom: -14px; }
 .message-form input, .message-form textarea, .message-form select {
   width: 100%; padding: 13px 16px; border: 1px solid var(--cream-dark); border-radius: var(--radius-sm);
   font-family: var(--font-body); font-size: 0.94rem; color: var(--text-dark); background: var(--cream);
@@ -474,7 +476,7 @@ button.contact-card-link { width: 100%; border: none; font: inherit; }
   background: var(--cream); font-family: var(--font-body); font-size: 0.85rem; color: var(--text-dark);
   cursor: pointer;
 }
-.form-hint { font-size: 0.78rem; color: var(--text-light); margin-top: -8px; }
+.form-hint { font-size: 0.78rem; color: var(--text-light); margin-top: -14px; }
 .message-form button[type="submit"] { margin-top: 6px; }
 .message-form button[type="submit"]:disabled { opacity: 0.7; cursor: not-allowed; transform: none; }
 .form-status { font-size: 0.88rem; text-align: center; min-height: 1.2em; }
@@ -590,6 +592,13 @@ button.contact-card-link { width: 100%; border: none; font: inherit; }
   .modal-box { padding: 32px 20px; }
   .modal-close { top: 12px; right: 12px; }
   .appt-clinic-address { font-size: 0.84rem; padding: 10px 12px; }
+  /* Slightly tighter field spacing than desktop so the form doesn't take
+     too much extra scroll on small phones, while still keeping more
+     breathing room than the original cramped layout. */
+  .message-form { gap: 16px; }
+  .message-form label { margin-bottom: -10px; }
+  .form-hint { margin-top: -10px; }
+  .appt-address-field { margin: -10px 0 16px; }
 }
 
 /* Keep the heading compact on phones so the treatments carousel right
