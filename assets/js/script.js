@@ -31,6 +31,39 @@ document.addEventListener('DOMContentLoaded', () => {
     if (icons[name]) el.innerHTML = icons[name];
   });
 
+  /* ---------- "Saved" toast (shown briefly after any save to the sheet) ---------- */
+  let savedToastEl = null;
+  let savedToastTimer = null;
+  const showSavedToast = (message) => {
+    if (!savedToastEl) {
+      savedToastEl = document.createElement('div');
+      savedToastEl.className = 'site-toast';
+      savedToastEl.setAttribute('role', 'status');
+      savedToastEl.setAttribute('aria-live', 'polite');
+      document.body.appendChild(savedToastEl);
+    }
+    savedToastEl.textContent = message || 'Saved';
+    savedToastEl.classList.remove('is-visible');
+    void savedToastEl.offsetWidth; // restart the transition on back-to-back saves
+    savedToastEl.classList.add('is-visible');
+    if (savedToastTimer) clearTimeout(savedToastTimer);
+    savedToastTimer = setTimeout(() => savedToastEl.classList.remove('is-visible'), 2000);
+  };
+
+  // Shows a circular spinner over a form's fields and disables them while a
+  // save request to the sheet is in flight (Appointment / Message Us forms).
+  const setFormSaving = (form, isSaving) => {
+    let overlay = form.querySelector('.form-saving-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.className = 'form-saving-overlay';
+      overlay.innerHTML = '<span class="loki-spinner" aria-hidden="true"></span>';
+      form.appendChild(overlay);
+    }
+    overlay.classList.toggle('is-active', isSaving);
+    form.querySelectorAll('input, select, textarea').forEach((el) => { el.disabled = isSaving; });
+  };
+
   /* ---------- Preloader ---------- */
   const preloader = document.getElementById('preloader');
   window.addEventListener('load', () => {
@@ -755,6 +788,7 @@ document.addEventListener('DOMContentLoaded', () => {
       submitBtn.textContent = 'Booking…';
       appointmentFormStatus.textContent = '';
       appointmentFormStatus.className = 'form-status';
+      setFormSaving(appointmentForm, true);
 
       const formData = new FormData();
       formData.append('formType', 'appointment');
@@ -774,6 +808,7 @@ document.addEventListener('DOMContentLoaded', () => {
           submitBtn.textContent = 'Appointment Booked ✓';
           appointmentFormStatus.textContent = 'Booked for ' + apptDateInput.value + ', ' + slot.label + '.';
           appointmentFormStatus.className = 'form-status success';
+          showSavedToast();
           setTimeout(() => {
             appointmentForm.reset();
             closeAppointmentModal();
@@ -792,6 +827,8 @@ document.addEventListener('DOMContentLoaded', () => {
         submitBtn.textContent = originalLabel;
         appointmentFormStatus.textContent = 'Something went wrong. Please try again or call us directly.';
         appointmentFormStatus.className = 'form-status error';
+      } finally {
+        setFormSaving(appointmentForm, false);
       }
     });
   }
@@ -849,6 +886,7 @@ document.addEventListener('DOMContentLoaded', () => {
       submitBtn.textContent = imageFiles.some(Boolean) ? 'Uploading photo…' : 'Sending…';
       messageFormStatus.textContent = '';
       messageFormStatus.className = 'form-status';
+      setFormSaving(messageUsForm, true);
 
       const formData = new FormData();
       formData.append('name', messageUsForm.querySelector('#msgName').value);
@@ -870,6 +908,7 @@ document.addEventListener('DOMContentLoaded', () => {
         submitBtn.textContent = originalLabel;
         messageFormStatus.textContent = "Couldn't read that photo — please try a different file.";
         messageFormStatus.className = 'form-status error';
+        setFormSaving(messageUsForm, false);
         return;
       }
 
@@ -888,6 +927,7 @@ document.addEventListener('DOMContentLoaded', () => {
           submitBtn.disabled = true;
           messageFormStatus.textContent = 'Message sent';
           messageFormStatus.className = 'form-status success';
+          showSavedToast();
           messageUsForm.reset();
         })
         .catch(() => {
@@ -895,7 +935,8 @@ document.addEventListener('DOMContentLoaded', () => {
           submitBtn.disabled = false;
           messageFormStatus.textContent = 'Something went wrong. Please try again or call us directly.';
           messageFormStatus.className = 'form-status error';
-        });
+        })
+        .finally(() => setFormSaving(messageUsForm, false));
     });
   }
 

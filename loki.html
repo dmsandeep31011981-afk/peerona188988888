@@ -58,6 +58,7 @@
           <span class="loki-nav-label" id="apptRangeLabel">&mdash;</span>
           <button type="button" class="btn btn-outline loki-nav-btn" id="apptTodayBtn">Today</button>
           <button type="button" class="btn btn-outline loki-nav-btn" id="apptNextBtn">Later &rarr;</button>
+          <button type="button" class="loki-refresh-btn" id="apptRefreshBtn" title="Refresh" aria-label="Refresh appointments"><i data-icon="refresh"></i></button>
         </div>
 
         <p class="form-status" id="apptStatus" aria-live="polite"></p>
@@ -84,10 +85,71 @@
           <span class="loki-nav-label" id="msgRangeLabel">&mdash;</span>
           <button type="button" class="btn btn-outline loki-nav-btn" id="msgTodayBtn">Today</button>
           <button type="button" class="btn btn-outline loki-nav-btn" id="msgNextBtn">Later &rarr;</button>
+          <button type="button" class="loki-refresh-btn" id="msgRefreshBtn" title="Refresh" aria-label="Refresh messages"><i data-icon="refresh"></i></button>
         </div>
 
         <p class="form-status" id="msgStatus" aria-live="polite"></p>
         <div class="loki-list" id="msgList"></div>
+      </div>
+    </section>
+
+    <!-- ===== Cancel Dates Section ===== -->
+    <section class="loki-section" id="cancelSection">
+      <button type="button" class="loki-section-toggle" id="cancelToggle" aria-expanded="false">
+        <i data-icon="x-circle"></i>
+        <span>Cancel Dates</span>
+        <i data-icon="arrow-up" class="loki-chevron"></i>
+      </button>
+
+      <div class="loki-section-body" id="cancelBody" hidden>
+        <div class="loki-subtabs">
+          <button type="button" class="loki-subtab-btn is-active" id="cancelAllTabBtn">All Bookings</button>
+          <button type="button" class="loki-subtab-btn" id="cancelRangeTabBtn">By Date Range</button>
+          <button type="button" class="loki-refresh-btn" id="cancelRefreshBtn" title="Refresh" aria-label="Refresh bookings"><i data-icon="refresh"></i></button>
+        </div>
+
+        <!-- All Bookings sub-view -->
+        <div class="loki-subtab-panel" id="cancelAllPanel">
+          <p class="form-status" id="cancelAllStatus" aria-live="polite"></p>
+          <div class="loki-cancel-selectbar">
+            <label class="loki-checkbox-label">
+              <input type="checkbox" id="cancelAllSelectAll"> Select all
+            </label>
+            <span id="cancelAllSelectedCount">0 selected</span>
+          </div>
+          <div class="loki-list" id="cancelAllList"></div>
+          <div class="loki-save-bar" id="cancelAllSaveBar" hidden>
+            <div class="loki-reason-field">
+              <label for="cancelAllReasonSelect">Cancelled Reason (optional, applies to all selected)</label>
+              <select id="cancelAllReasonSelect"></select>
+            </div>
+            <button type="button" class="btn btn-primary" id="cancelAllSaveBtn">Cancel Selected</button>
+          </div>
+        </div>
+
+        <!-- Date Range sub-view -->
+        <div class="loki-subtab-panel" id="cancelRangePanel" hidden>
+          <div class="loki-range-fields">
+            <label>Start date <input type="date" id="cancelRangeStart"></label>
+            <label>End date <input type="date" id="cancelRangeEnd"></label>
+            <button type="button" class="btn btn-outline" id="cancelRangeLoadBtn">Show Bookings</button>
+          </div>
+          <p class="form-status" id="cancelRangeStatus" aria-live="polite"></p>
+          <div class="loki-cancel-selectbar" id="cancelRangeSelectbar" hidden>
+            <label class="loki-checkbox-label">
+              <input type="checkbox" id="cancelRangeSelectAll"> Select all
+            </label>
+            <span id="cancelRangeSelectedCount">0 selected</span>
+          </div>
+          <div class="loki-list" id="cancelRangeList"></div>
+          <div class="loki-save-bar" id="cancelRangeSaveBar" hidden>
+            <div class="loki-reason-field">
+              <label for="cancelRangeReasonSelect">Cancelled Reason (optional, applies to all selected)</label>
+              <select id="cancelRangeReasonSelect"></select>
+            </div>
+            <button type="button" class="btn btn-primary" id="cancelRangeSaveBtn">Cancel Selected</button>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -116,6 +178,22 @@
       <span class="form-hint" id="replyWordCount">0 / 1000 words</span>
       <button type="submit" class="btn btn-primary btn-block btn-lg">Send Reply</button>
       <p class="form-status" id="replyFormStatus" aria-live="polite"></p>
+    </form>
+  </div>
+</div>
+
+<!-- ===== Prescription modal ===== -->
+<div class="modal-overlay" id="prescriptionModalOverlay">
+  <div class="modal-box">
+    <button type="button" class="modal-close" id="closePrescriptionModal" aria-label="Close"><i data-icon="x"></i></button>
+    <h3>Prescription</h3>
+    <p class="modal-sub" id="prescriptionModalSub">&mdash;</p>
+    <form id="prescriptionForm" class="message-form">
+      <label for="prescriptionTextarea">Prescription notes</label>
+      <textarea id="prescriptionTextarea" rows="12" placeholder="Type the prescription / notes here (up to about 1000 words)..."></textarea>
+      <span class="form-hint" id="prescriptionWordCount">0 / 1000 words</span>
+      <button type="submit" class="btn btn-primary btn-block btn-lg">Save Prescription</button>
+      <p class="form-status" id="prescriptionFormStatus" aria-live="polite"></p>
     </form>
   </div>
 </div>

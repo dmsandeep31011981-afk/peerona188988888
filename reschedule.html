@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reschedule Your Appointment &mdash; PeerOna</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>&#127807;</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/reschedule.css">
+</head>
+<body>
+
+<div class="resch-page">
+  <div class="resch-box">
+    <div class="resch-icon" aria-hidden="true">&#128197;</div>
+    <h1>Reschedule Your Appointment</h1>
+    <p class="resch-sub" id="reschSub">Pick a new date and time that works for you &mdash; we&rsquo;ll confirm it right away.</p>
+
+    <form id="rescheduleForm" class="message-form">
+      <label for="reschName">Name</label>
+      <input type="text" id="reschName" name="name" placeholder="Your name" required>
+
+      <label for="reschPhone">Phone Number</label>
+      <input type="tel" id="reschPhone" name="phone" placeholder="Your phone number" required pattern="[0-9+\s\(\)\-]{7,}">
+
+      <label for="reschEmail">Email Id <span class="form-optional">(optional)</span></label>
+      <input type="email" id="reschEmail" name="email" placeholder="your.email@example.com">
+
+      <label for="reschDate">Date</label>
+      <input type="date" id="reschDate" name="date" required>
+
+      <label for="reschTime">Booking Time</label>
+      <select id="reschTime" name="timeSlot" required>
+        <option value="">Select a time slot</option>
+      </select>
+      <span class="form-hint">10 AM&ndash;2 PM &amp; 3 PM&ndash;8 PM, 30-minute slots (2&ndash;3 PM is lunch break). Already-booked slots are grayed out.</span>
+
+      <button type="submit" class="btn btn-primary btn-block btn-lg">Confirm New Appointment</button>
+      <p class="form-status" id="reschFormStatus" aria-live="polite"></p>
+    </form>
+  </div>
+</div>
+
+<script src="assets/js/reschedule.js"></script>
+</body>
+</html>

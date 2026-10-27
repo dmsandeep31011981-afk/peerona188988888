@@ -70,13 +70,23 @@ body.loki-page { background: var(--cream); }
   transition: var(--transition);
 }
 .appt-row.is-cancelled { background: #f7e9e8; opacity: 0.75; }
+.appt-row.is-rescheduled { background: #eaeef7; opacity: 0.85; }
+.appt-row.is-finished { background: #e9f2ea; opacity: 0.85; }
+.appt-row.is-past { background: #ededed; opacity: 0.7; }
 .appt-row-info { display: flex; flex-direction: column; gap: 2px; min-width: 160px; flex: 1 1 200px; }
 .appt-row-info strong { font-size: 0.96rem; color: var(--text-dark); }
 .appt-row-info span { font-size: 0.82rem; color: var(--text-light); }
-.appt-row.is-cancelled .appt-row-info strong { text-decoration: line-through; }
+.appt-row.is-cancelled .appt-row-info strong,
+.appt-row.is-rescheduled .appt-row-info strong { text-decoration: line-through; }
+.appt-row-rescheduled-note { font-size: 0.78rem; color: var(--text-light); font-style: italic; }
 .appt-row-time { font-size: 0.86rem; font-weight: 600; color: var(--text-dark); white-space: nowrap; }
-.appt-row-cancel { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; color: var(--text-dark); cursor: pointer; white-space: nowrap; }
-.appt-row-cancel input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; accent-color: #ff3300; }
+.appt-row-status { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.appt-row-status select {
+  padding: 7px 30px 7px 12px; border: 1.5px solid #e9ddd6; border-radius: 50px;
+  font-family: inherit; font-size: 0.82rem; font-weight: 500; color: var(--text-dark);
+  background: var(--white); cursor: pointer; transition: var(--transition);
+}
+.appt-row-status select:focus { outline: none; border-color: var(--blush-dark); }
 
 .loki-save-bar {
   position: sticky; bottom: 0; display: flex; align-items: center; justify-content: space-between;
@@ -101,14 +111,145 @@ body.loki-page { background: var(--cream); }
 .msg-card-actions .btn { padding: 9px 16px; font-size: 0.8rem; }
 
 /* ---------- Photos modal ---------- */
-.loki-photos-box { max-width: 420px; }
-.loki-photos-scroll { display: flex; flex-direction: column; gap: 14px; max-height: 65vh; }
-.loki-photos-scroll img { width: 100%; border-radius: var(--radius-sm); box-shadow: var(--shadow-sm); }
+/* Large viewing window so the doctor can see full detail in each photo;
+   images are shown as large as the window allows (not shrunk to a small
+   fixed box) and are each a click-through to the original full-resolution
+   file in a new tab for pixel-level zooming. */
+.loki-photos-box { max-width: 1200px; width: 94vw; max-height: 94vh; padding: 32px 28px; }
+.loki-photos-scroll { display: flex; flex-direction: column; gap: 24px; max-height: calc(94vh - 130px); }
+.loki-photos-scroll a { display: block; cursor: zoom-in; }
+.loki-photos-scroll img { width: 100%; height: auto; display: block; border-radius: var(--radius-sm); box-shadow: var(--shadow-sm); }
 .loki-photos-empty { color: var(--text-light); font-size: 0.9rem; text-align: center; padding: 20px 0; }
+
+/* Each photo gets its own spinner while it loads, then fades in. */
+/* flex-shrink:0 is the key fix: without it, this flex column (nested
+   inside the height-capped .loki-photos-scroll) would shrink each photo's
+   box down below its image's real height while leaving the <img> itself
+   at full size (overflow:visible), so one photo visually bled over the
+   next ("overlapping" photos). flex-shrink:0 forces the box to always
+   match its content's real height instead, so the modal scrolls for more
+   photos rather than squishing/overlapping them. min-height stays only to
+   give the spinner room before the image has finished loading. */
+.loki-photo-wrap { position: relative; min-height: 180px; flex-shrink: 0; }
+.loki-photo-wrap .loki-photo-link img { opacity: 0; transition: opacity 0.25s ease; }
+.loki-photo-wrap.is-loaded .loki-photo-link img { opacity: 1; }
+.loki-photo-wrap.is-loaded .loki-spinner,
+.loki-photo-wrap.is-error .loki-spinner { display: none; }
+.loki-photo-error { display: block; text-align: center; padding: 30px 10px; color: var(--text-light); font-size: 0.85rem; }
+
+/* ---------- Circular progress / loading spinner ---------- */
+/* Brand-compatible: the faint track and spinning arc both use the site's
+   accent orange (#ff3300, same as the logo mark and section icons), so it
+   reads as part of the same system wherever it shows up. */
+.loki-spinner {
+  display: inline-block; width: 22px; height: 22px; flex-shrink: 0;
+  border: 3px solid rgba(255, 51, 0, 0.15);
+  border-top-color: #ff3300;
+  border-radius: 50%;
+  animation: loki-spin 0.8s linear infinite;
+}
+.loki-spinner-sm { width: 16px; height: 16px; border-width: 2px; }
+.loki-spinner-lg {
+  width: 40px; height: 40px; border-width: 4px;
+  position: absolute; top: 50%; left: 50%; margin: -20px 0 0 -20px;
+}
+@keyframes loki-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .loki-spinner { animation-duration: 1.6s; }
+}
+.loki-loading { display: inline-flex; align-items: center; gap: 8px; }
+
+/* ---------- Refresh button (Appointment / Messages nav, Cancel Dates subtabs) ---------- */
+.loki-refresh-btn {
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  width: 38px; height: 38px; border-radius: 50%; border: 1.5px solid #e9ddd6;
+  background: var(--white); color: var(--text-dark); cursor: pointer; transition: var(--transition);
+}
+.loki-refresh-btn:hover { background: #ff3300; border-color: #ff3300; color: var(--white); }
+.loki-refresh-btn:disabled { cursor: default; opacity: 0.7; }
+.loki-refresh-btn:disabled:hover { background: var(--white); border-color: #e9ddd6; color: var(--text-dark); }
+.loki-refresh-btn i { width: 16px; height: 16px; }
+.loki-refresh-btn.is-spinning i { animation: loki-spin 0.8s linear infinite; }
+/* In the Cancel Dates subtabs row (not the nav rows), push it to the right. */
+.loki-subtabs .loki-refresh-btn { margin-left: auto; }
+
+@media (max-width: 700px) {
+  .loki-photos-box { width: 96vw; padding: 24px 16px; }
+}
+
+/* ---------- Appointment row controls (status + reason + prescription) ---------- */
+.appt-row-controls { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; margin-left: auto; }
+.appt-row-reason { display: flex; flex-direction: column; gap: 3px; }
+.appt-row-reason-label {
+  font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-light);
+}
+.appt-row-reason select {
+  padding: 7px 30px 7px 12px; border: 1.5px solid #e9ddd6; border-radius: 50px;
+  font-family: inherit; font-size: 0.82rem; font-weight: 500; color: var(--text-dark);
+  background: var(--white); cursor: pointer; transition: var(--transition); max-width: 220px;
+}
+.appt-row-reason select:focus { outline: none; border-color: var(--blush-dark); }
+.appt-row-prescription-btn {
+  padding: 8px 16px; font-size: 0.8rem; font-weight: 600; border-radius: 50px; white-space: nowrap;
+  border: 1.5px solid #ff3300; color: #ff3300; background: var(--white); cursor: pointer; transition: var(--transition);
+}
+.appt-row-prescription-btn:hover { background: #ff3300; color: var(--white); }
+
+/* ---------- Cancel Dates section ---------- */
+.loki-subtabs { display: flex; gap: 8px; padding: 20px 0 6px; flex-wrap: wrap; }
+.loki-subtab-btn {
+  padding: 9px 18px; font-size: 0.85rem; font-weight: 600; border-radius: 50px;
+  border: 1.5px solid #e9ddd6; background: var(--white); color: var(--text-light); cursor: pointer; transition: var(--transition);
+}
+.loki-subtab-btn.is-active { background: #ff3300; border-color: #ff3300; color: var(--white); }
+.loki-subtab-panel[hidden] { display: none; }
+
+.loki-checkbox-label { display: inline-flex; align-items: center; gap: 8px; font-size: 0.86rem; color: var(--text-dark); cursor: pointer; }
+.loki-checkbox-label input[type="checkbox"] { width: 17px; height: 17px; cursor: pointer; accent-color: #ff3300; }
+
+.loki-cancel-selectbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  padding: 4px 2px 14px; font-size: 0.85rem; color: var(--text-light);
+}
+
+.loki-range-fields { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 6px 0 16px; }
+.loki-range-fields label { display: flex; flex-direction: column; gap: 5px; font-size: 0.78rem; color: var(--text-light); font-weight: 600; }
+.loki-range-fields input[type="date"] {
+  padding: 9px 12px; border: 1.5px solid #e9ddd6; border-radius: var(--radius-sm);
+  font-family: inherit; font-size: 0.85rem; color: var(--text-dark); background: var(--white);
+}
+.loki-range-fields .btn { align-self: flex-end; padding: 10px 20px; font-size: 0.82rem; }
+
+.cancel-row {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  background: var(--cream); border-radius: var(--radius-sm); padding: 12px 18px; margin-bottom: 8px;
+}
+.cancel-row-check { flex-shrink: 0; }
+.cancel-row .appt-row-time { margin-left: auto; }
+
+.appt-row-status-badge {
+  display: inline-block; padding: 5px 14px; border-radius: 50px; font-size: 0.76rem; font-weight: 600;
+  background: var(--white); color: var(--text-light); border: 1.5px solid #e9ddd6; white-space: nowrap;
+}
+.appt-row-status-badge.is-cancelled { color: #c0392b; border-color: #e8c7c2; }
+.appt-row-status-badge.is-rescheduled { color: #3b4f8f; border-color: #d4dced; }
+.appt-row-status-badge.is-finished { color: #2f7a43; border-color: #cfe8d5; }
+.appt-row-status-badge.is-past { color: var(--text-light); border-color: #dcdcdc; }
+
+.loki-reason-field { display: flex; flex-direction: column; gap: 5px; flex: 1 1 260px; min-width: 0; }
+.loki-reason-field label { font-size: 0.76rem; color: var(--cream); opacity: 0.85; }
+.loki-reason-field select {
+  padding: 9px 14px; border-radius: var(--radius-sm); border: none; font-family: inherit;
+  font-size: 0.85rem; color: var(--text-dark); background: var(--white); cursor: pointer; max-width: 100%;
+}
 
 /* ---------- Reply modal ---------- */
 #replyTextarea { resize: vertical; min-height: 180px; }
 #replyWordCount.over-limit { color: #d6453d; font-weight: 600; }
+
+/* ---------- Prescription modal ---------- */
+#prescriptionTextarea { resize: vertical; min-height: 220px; }
+#prescriptionWordCount.over-limit { color: #d6453d; font-weight: 600; }
 
 /* ---------- Mobile ---------- */
 @media (max-width: 640px) {
@@ -117,9 +258,23 @@ body.loki-page { background: var(--cream); }
   .appt-row { padding: 12px 14px; }
   .appt-row-time { order: 3; width: 100%; }
   .appt-row-cancel { margin-left: auto; }
+  .appt-row-controls { margin-left: 0; width: 100%; order: 4; align-items: stretch; }
+  .appt-row-reason select { max-width: 100%; }
   .loki-save-bar { flex-direction: column; align-items: stretch; text-align: center; }
   .loki-nav-label { min-width: 0; width: 100%; order: -1; margin-bottom: 4px; }
   .msg-card-head { flex-direction: column; align-items: flex-start; gap: 2px; }
+  .loki-subtabs { flex-direction: column; }
+  .loki-subtab-btn { width: 100%; text-align: center; }
+  .loki-range-fields { flex-direction: column; align-items: stretch; }
+  .loki-range-fields .btn { align-self: stretch; }
+  .cancel-row .appt-row-time { margin-left: 0; width: 100%; order: 3; }
+  .loki-cancel-selectbar { flex-direction: column; align-items: flex-start; }
+  /* .loki-save-bar switches to a column here, but .loki-reason-field's
+     "flex: 1 1 260px" was written for the row layout, where 260px caps its
+     WIDTH -- in a column it becomes a 260px-tall flex-basis instead (plus
+     flex-grow:1 stretching it further), leaving a large empty gap above
+     the Cancel Selected button. Reset it to size by content on mobile. */
+  .loki-reason-field { flex: 1 1 auto; }
 }
 @media (max-width: 480px) {
   .loki-gate-box { padding: 32px 22px; }

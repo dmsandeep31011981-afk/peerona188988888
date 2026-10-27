@@ -1,0 +1,12 @@
+There Should be another section called Cancel Dates, third section in loki.html
+
+
+There should be option to cancel the dates either by showing All Bookings and a column which is check box to select booking
+to cancel and select all option to select all bookings and doctor should be able to save changes like its done in Appointment Section.
+
+There Should be another option to select the bookings by date range,start date range and end date range,only future dates should be
+shown here and it displays all bookings and like in previous option he should be select individual bookings or all bookings.
+
+There Should be two fields in Booking Appointment section at end, the field is "Prescription" column(this could hold 1000 words) and another column called "Cancelled Reason", there should be two values for this "Doctor Got Busy in an Emergency","Doctor not well","UnPlanned
+Work Came","Doctor is on vacation","Clinic Holiday". While cancel you need to option to select these values in a select box for each booking and doctor should any of these, if used in select all bookings there should be option to choose any of this values and save changes.
+Please find a proper place in select all bookings option where you should be show "Cancelled Reason".
