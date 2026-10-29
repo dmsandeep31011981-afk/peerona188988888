@@ -43,6 +43,10 @@ body.loki-page { background: var(--cream); }
 .loki-chevron { width: 16px; height: 16px; flex-shrink: 0; transition: transform 0.25s ease; color: var(--text-light); }
 .loki-section-toggle[aria-expanded="true"] .loki-chevron { transform: rotate(180deg); }
 .loki-section-body { padding: 0 26px 26px; border-top: 1px solid var(--cream-dark); }
+/* Appointment Section body needs its own positioning context so the
+   Save-Changes overlay (.form-saving-overlay, absolute + inset:0) covers
+   exactly its nav/list/save-bar content, not the whole page. */
+#apptBody { position: relative; }
 
 /* ---------- Date-window nav ---------- */
 .loki-nav {
@@ -93,6 +97,12 @@ body.loki-page { background: var(--cream); }
   gap: 14px; background: var(--text-dark); color: var(--cream); border-radius: var(--radius-sm);
   padding: 14px 20px; margin-top: 18px;
 }
+/* Without this, the bar's own `display: flex` (an author rule) overrides
+   the browser's default `[hidden] { display: none }` (a lower-priority
+   UA-stylesheet rule), so setting the `hidden` attribute from JS would do
+   nothing visually -- the Save Changes bar would stay on screen even with
+   zero pending edits. This re-asserts the hide whenever `hidden` is set. */
+.loki-save-bar[hidden] { display: none; }
 .loki-save-bar span { font-size: 0.88rem; }
 .loki-save-bar .btn-primary { padding: 10px 22px; font-size: 0.85rem; }
 

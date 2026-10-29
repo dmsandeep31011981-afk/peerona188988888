@@ -241,6 +241,7 @@
   var apptSaveBar = document.getElementById('apptSaveBar');
   var apptSaveCount = document.getElementById('apptSaveCount');
   var apptSaveBtn = document.getElementById('apptSaveBtn');
+  var apptSavingOverlay = document.getElementById('apptSavingOverlay');
 
   var appointmentsCache = null; // array, fetched once per unlock (or forced refresh)
   var apptWindowStart = startOfToday(); // appointments default forward: today .. +6
@@ -456,6 +457,7 @@
 
     apptSaveBtn.disabled = true;
     apptSaveBtn.textContent = 'Saving…';
+    apptSavingOverlay.classList.add('is-active');
 
     var changesPayload = keys.map(function (id) {
       var entry = apptChanges[id];
@@ -498,6 +500,7 @@
       .finally(function () {
         apptSaveBtn.disabled = false;
         apptSaveBtn.textContent = 'Save Changes';
+        apptSavingOverlay.classList.remove('is-active');
       });
   });
 

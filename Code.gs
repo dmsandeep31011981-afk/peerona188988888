@@ -26,12 +26,20 @@
  *
  * "Booked Appointments" tab — created automatically on first booking, with
  * columns: Id | Timestamp | Name | Phone | Date | Start Time | End Time |
- * Time Slot | Email | Status | ReScheduled Id. Email is optional (patients
- * can leave it blank). Id is a running number assigned automatically when
- * a booking is made — it's what Dr. Lokesh's Status dropdown and the
- * reschedule link both key off. Status is a dropdown Dr. Lokesh's page
- * (loki.html) sets directly on each row: blank (upcoming), "Cancelled",
- * "ReScheduled", "Finished" or "Past".
+ * Time Slot | Email | Status | ReScheduled Id | Prescription | Cancelled
+ * Reason. Email is optional (patients can leave it blank). Id is a running
+ * number assigned automatically when a booking is made — it's what Dr.
+ * Lokesh's Status dropdown and the reschedule link both key off. Status is
+ * a dropdown Dr. Lokesh's page (loki.html) sets directly on each row: blank
+ * (upcoming), "Cancelled", "ReScheduled", "Finished" or "Past".
+ *   - Prescription is a free-text field (up to ~1000 words) Dr. Lokesh can
+ *     fill in from a modal on loki.html, saved independently of Status.
+ *   - Cancelled Reason is an optional dropdown, selectable per booking (or
+ *     applied to a whole batch from the Cancel Dates section) whenever
+ *     Status is set to Cancelled: "Doctor Got Busy in an Emergency",
+ *     "Doctor not well", "UnPlanned Work Came", "Doctor is on vacation", or
+ *     "Clinic Holiday". It's never required to cancel a booking, and is
+ *     included in the patient's cancellation email when set.
  *   - A blank ("upcoming") row whose booking End Time has already gone by
  *     (compared in IST) is automatically promoted to "Past" the next time
  *     anything reads or writes this sheet — no scheduled trigger needed,
@@ -52,37 +60,71 @@
  * yourself.
  *
  * "Settings" tab — created automatically (seeded with "Address", "Maps
- * Link" and "Loki Passcode" rows) the first time anyone loads the site or
- * runs this script. Columns: Key | Value. Edit the Value column directly
- * in the sheet to change what shows up on the site — the clinic address
- * text (shown on "Visit Us" and in the Book Appointment form), the Google
- * Maps link that both of those open when clicked (paste any Google Maps
- * share link there to point it somewhere else), and the passcode that
- * guards loki.html (change it any time, no redeploy needed) — no code
- * change or redeploy needed. Add more rows with any Key name to make more
- * settings available the same way.
+ * Link", "Dr Lokesh Passcode" and "Receptionist Passcode" rows) the first
+ * time anyone loads the site or runs this script. Columns: Key | Value.
+ * Edit the Value column directly in the sheet to change what shows up on
+ * the site — the clinic address text (shown on "Visit Us" and in the Book
+ * Appointment form), the Google Maps link that both of those open when
+ * clicked (paste any Google Maps share link there to point it somewhere
+ * else), and the two passcodes that guard loki.html, one per admin role
+ * (change either any time, no redeploy needed) — no code change or
+ * redeploy needed. Add more rows with any Key name to make more settings
+ * available the same way.
  *
- * loki.html — Dr. Lokesh's private page (not linked from the site; reached
- * by going straight to .../loki.html). Gated by the "Loki Passcode"
- * Settings value. Lets him browse appointments and "Message Us" messages
- * by date, set each appointment's Status (saved back here, patients
- * emailed automatically when newly Cancelled if they gave an email), view
- * uploaded photos, and send a reply that's saved into the InLineReply
- * column on the "Messages" tab.
+ * loki.html — the private admin page (not linked from the site; reached by
+ * going straight to .../loki.html), shared by Dr. Lokesh and the
+ * Receptionist. Gated by either the "Dr Lokesh Passcode" or "Receptionist
+ * Passcode" Settings value — which one was typed in is also how the audit
+ * log (below) knows which of them performed a given save. Lets its user
+ * browse appointments and "Message Us" messages by date, set each
+ * appointment's Status (saved back here, patients emailed automatically
+ * when newly Cancelled if they gave an email), fill in a Prescription,
+ * view uploaded photos, and send a reply that's saved into the
+ * InLineReply column on the "Messages" tab.
  *
  * reschedule.html — the page the cancellation email links to. A patient
  * opens it, picks a new date/time, and books it — same slot-booking logic
  * as the main site's Book Appointment form, just trimmed down to only
  * that. SITE_BASE_URL below must match wherever this site is actually
  * hosted, so that link works.
+ *
+ * "Users" / "Actions" / "TransactionLog" tabs — created automatically, the
+ * audit trail for every create/modify made to "Booked Appointments" or
+ * "Messages" (delete is reserved for later, not used yet). "Users" and
+ * "Actions" are small fixed lookup tables (Id | Name, Id | ActionName);
+ * "TransactionLog" (Id | TimeStamp | SheetName | RowId | Action | UserId |
+ * AdditionalData) has one row per change — RowId is the affected row's own
+ * Id within SheetName (the booking or message id), Action and UserId are
+ * ids into those two lookup tables, and AdditionalData is a short
+ * plain-text detail of what changed (old -> new values, etc).
+ * Public-site submissions are always logged as "Patient"; loki.html saves
+ * are logged as "Dr Lokesh" or "Receptionist" depending on which passcode
+ * was used to log in.
  */
 
 const SHEET_NAME = 'Messages';                      // must match the tab name in your sheet
 const APPOINTMENTS_SHEET_NAME = 'Booked Appointments'; // auto-created if missing
 const SETTINGS_SHEET_NAME = 'Settings';              // auto-created if missing — global site settings (e.g. clinic address)
+const USERS_SHEET_NAME = 'Users';                    // auto-created if missing — audit log lookup table (who)
+const ACTIONS_SHEET_NAME = 'Actions';                // auto-created if missing — audit log lookup table (what kind)
+const TRANSACTION_LOG_SHEET_NAME = 'TransactionLog'; // auto-created if missing — the audit trail itself
 const IMAGE_FOLDER_NAME = 'PeerOna Message Photos';  // Drive folder the photos are saved into
 const NOTIFICATION_EMAIL = 'dmsandeep31011981@gmail.com'; // where new submissions/bookings get emailed — change this later
 const TIMEZONE = 'Asia/Kolkata'; // all appointment dates/times are India Standard Time
+
+// Users.Id values. Fixed and hard-coded (not looked up by name) because
+// nothing ever names a user from outside this script — Code.gs infers the
+// actor itself: "Patient" for every public-site write, and "Dr Lokesh" or
+// "Receptionist" from which of the two loki.html passcodes was used (see
+// resolveLokiUser_ below). Must match the seed rows in getOrCreateUsersSheet_.
+const USER_ID_DR_LOKESH = 1;
+const USER_ID_RECEPTIONIST = 2;
+const USER_ID_PATIENT = 3;
+
+// Actions.Id values. Must match the seed rows in getOrCreateActionsSheet_.
+const ACTION_ID_CREATE = 1;
+const ACTION_ID_MODIFY = 2;
+const ACTION_ID_DELETE = 3; // reserved for future use — nothing deletes data yet
 
 // Base URL the live site is actually served from — used to build the
 // "pick a new time" link in the cancellation email. Update this if the
@@ -97,13 +139,31 @@ const STATUS_FINISHED = 'Finished';
 const STATUS_PAST = 'Past';
 const STATUS_VALUES = ['', STATUS_CANCELLED, STATUS_RESCHEDULED, STATUS_FINISHED, STATUS_PAST];
 
+// Allowed values for the Booked Appointments "Cancelled Reason" column.
+// '' (blank) means no reason was given -- this field is always optional,
+// never required to cancel a booking.
+const CANCEL_REASON_VALUES = [
+  '',
+  'Doctor Got Busy in an Emergency',
+  'Doctor not well',
+  'UnPlanned Work Came',
+  'Doctor is on vacation',
+  'Clinic Holiday'
+];
+
 // Seed rows for the "Settings" sheet the first time it's created. Edit the
 // VALUES directly in the sheet afterwards — no code change needed; this
 // list is only used once, to create the tab with a sensible starting point.
+// loki.html now has one passcode PER ROLE (instead of one shared passcode)
+// so the audit log can tell Dr Lokesh's actions apart from the
+// Receptionist's — see resolveLokiUser_. An already-existing Settings
+// sheet (with the old single "Loki Passcode" row) is upgraded to this
+// automatically the first time it's touched — see ensureRolePasscodes_.
 const DEFAULT_SETTINGS = [
   ['Address', '221,Rajajinagar,bangalore'],
   ['Maps Link', 'https://www.google.com/maps/search/?api=1&query=12.9865278%2C77.5501667'],
-  ['Loki Passcode', 'Lokesh@Peerona2026']
+  ['Dr Lokesh Passcode', 'Lokesh@Peerona2026'],
+  ['Receptionist Passcode', 'Receptionist@Peerona2026']
 ];
 
 // Up to 4 optional photos per submission: '', '2', '3', '4' match the
@@ -114,12 +174,24 @@ const IMAGE_FIELD_SUFFIXES = ['', '2', '3', '4'];
  * Run this once manually from the Apps Script editor (select it in the
  * function dropdown, click Run) to trigger the permission prompt for
  * everything this script needs: Sheets, Drive, Calendar, and sending email.
+ * Also creates every tab this script manages (Messages, Booked
+ * Appointments, Settings, Users, Actions, TransactionLog) right away if
+ * they don't already exist, seeded with their starting rows -- so you can
+ * confirm the new Users/Actions/TransactionLog tabs appeared immediately,
+ * instead of waiting for a real booking/message/save to trigger them.
  */
 function authorizeAccess() {
   DriveApp.getRootFolder();
   SpreadsheetApp.getActiveSpreadsheet();
   MailApp.getRemainingDailyQuota();
   CalendarApp.getDefaultCalendar();
+
+  getOrCreateMessagesSheet_();
+  getOrCreateAppointmentsSheet_();
+  getOrCreateSettingsSheet_();
+  getOrCreateUsersSheet_();
+  getOrCreateActionsSheet_();
+  getOrCreateTransactionLogSheet_();
 }
 
 function jsonResponse_(obj) {
@@ -142,6 +214,90 @@ function getNextId_(sheet) {
     if (!isNaN(n) && n > max) max = n;
   });
   return max + 1;
+}
+
+/* ============================================================
+ * Audit log — "Users" / "Actions" / "TransactionLog" sheets
+ *
+ * Every write this script makes to "Booked Appointments" or "Messages"
+ * (create or modify — delete is reserved for later) records one row in
+ * "TransactionLog" saying when, which sheet, what kind of change, who did
+ * it, and a short human-readable detail. "Users" and "Actions" are just
+ * lookup tables TransactionLog.UserId / TransactionLog.Action point into,
+ * so the log itself stays compact (numbers, not repeated text).
+ * ============================================================ */
+
+function getOrCreateUsersSheet_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(USERS_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(USERS_SHEET_NAME);
+    sheet.appendRow(['Id', 'Name']);
+    sheet.getRange(1, 1, 1, 2).setFontWeight('bold');
+    sheet.setFrozenRows(1);
+    // Must line up with USER_ID_DR_LOKESH / USER_ID_RECEPTIONIST / USER_ID_PATIENT above.
+    sheet.appendRow([USER_ID_DR_LOKESH, 'Dr Lokesh']);
+    sheet.appendRow([USER_ID_RECEPTIONIST, 'Receptionist']);
+    sheet.appendRow([USER_ID_PATIENT, 'Patient']);
+  }
+  return sheet;
+}
+
+function getOrCreateActionsSheet_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(ACTIONS_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(ACTIONS_SHEET_NAME);
+    sheet.appendRow(['Id', 'ActionName']);
+    sheet.getRange(1, 1, 1, 2).setFontWeight('bold');
+    sheet.setFrozenRows(1);
+    // Must line up with ACTION_ID_CREATE / ACTION_ID_MODIFY / ACTION_ID_DELETE above.
+    sheet.appendRow([ACTION_ID_CREATE, 'Create']);
+    sheet.appendRow([ACTION_ID_MODIFY, 'Modify']);
+    sheet.appendRow([ACTION_ID_DELETE, 'Delete']);
+  }
+  return sheet;
+}
+
+function getOrCreateTransactionLogSheet_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(TRANSACTION_LOG_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(TRANSACTION_LOG_SHEET_NAME);
+    sheet.appendRow(['Id', 'TimeStamp', 'SheetName', 'RowId', 'Action', 'UserId', 'AdditionalData']);
+    sheet.getRange(1, 1, 1, 7).setFontWeight('bold');
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+// Appends one row to TransactionLog. sheetName is a short label ('BookedAppointments'
+// or 'Messages'); rowId is that row's own Id within that sheet (the booking or
+// message id the change applies to) -- blank for rare cases where no single row
+// is identifiable. actionId/userId are Actions.Id / Users.Id, additionalData is a
+// short free-text detail of what changed (see each call site for its format).
+function logTransaction_(sheetName, rowId, actionId, userId, additionalData) {
+  // Nothing actually needs to READ Users/Actions to append a log row (they're
+  // only id lookups the sheet reader joins against), but creating+seeding all
+  // three together the first time anything is logged means a brand-new site
+  // never ends up with a TransactionLog row pointing at ids no sheet explains.
+  getOrCreateUsersSheet_();
+  getOrCreateActionsSheet_();
+  const sheet = getOrCreateTransactionLogSheet_();
+  const newId = getNextId_(sheet);
+  sheet.appendRow([newId, new Date(), sheetName, rowId, actionId, userId, additionalData || '']);
+}
+
+// Same as logTransaction_, but never throws. Call sites are deep inside an
+// already-locked save (Appointments/Messages) — a problem writing the
+// *audit* row must never cause the real save to be reported as failed, so
+// every call site uses this instead of calling logTransaction_ directly.
+function logTransactionSafe_(sheetName, rowId, actionId, userId, additionalData) {
+  try {
+    logTransaction_(sheetName, rowId, actionId, userId, additionalData);
+  } catch (err) {
+    // Swallow — the real save already succeeded, which is what matters.
+  }
 }
 
 /* ============================================================
@@ -262,6 +418,8 @@ function handleMessage_(params) {
     row.push(''); // InLineReply, filled in later from loki.html
 
     sheet.appendRow(row);
+    logTransactionSafe_('Messages', newId, ACTION_ID_CREATE, USER_ID_PATIENT,
+      'Name:' + (params.name || '') + ' | Phone:' + (params.phone || ''));
 
     // Same resilience approach as the photo upload: a failed email should
     // never cause the submission itself to be lost or reported as failed.
@@ -290,8 +448,8 @@ function getOrCreateAppointmentsSheet_() {
   let sheet = ss.getSheetByName(APPOINTMENTS_SHEET_NAME);
   if (!sheet) {
     sheet = ss.insertSheet(APPOINTMENTS_SHEET_NAME);
-    sheet.appendRow(['Id', 'Timestamp', 'Name', 'Phone', 'Date', 'Start Time', 'End Time', 'Time Slot', 'Email', 'Status', 'ReScheduled Id']);
-    sheet.getRange(1, 1, 1, 11).setFontWeight('bold');
+    sheet.appendRow(['Id', 'Timestamp', 'Name', 'Phone', 'Date', 'Start Time', 'End Time', 'Time Slot', 'Email', 'Status', 'ReScheduled Id', 'Prescription', 'Cancelled Reason']);
+    sheet.getRange(1, 1, 1, 13).setFontWeight('bold');
     sheet.setFrozenRows(1);
     // Keep Date/Start Time/End Time as plain text (not auto-converted to
     // date/time serials) so string comparisons stay simple and reliable.
@@ -301,6 +459,12 @@ function getOrCreateAppointmentsSheet_() {
     // never drift from the five values this script understands.
     sheet.getRange(2, 10, 999, 1).setDataValidation(
       SpreadsheetApp.newDataValidation().requireValueInList(STATUS_VALUES, true).setAllowInvalid(false).build()
+    );
+    // Prescription/Cancelled Reason stay plain text; Cancelled Reason also
+    // gets the same kind of dropdown validation as Status.
+    sheet.getRange(2, 12, 999, 2).setNumberFormat('@');
+    sheet.getRange(2, 13, 999, 1).setDataValidation(
+      SpreadsheetApp.newDataValidation().requireValueInList(CANCEL_REASON_VALUES, true).setAllowInvalid(false).build()
     );
   }
   // Lazily promote any blank ("Upcoming") row whose booking slot has
@@ -393,7 +557,7 @@ function isSlotBooked_(dateStr, startTime) {
 function sortAppointmentsSheet_(sheet) {
   const lastRow = sheet.getLastRow();
   if (lastRow <= 2) return; // 0 or 1 data rows — nothing to sort
-  const range = sheet.getRange(2, 1, lastRow - 1, 11);
+  const range = sheet.getRange(2, 1, lastRow - 1, 13);
   range.sort([{ column: 5, ascending: true }, { column: 6, ascending: true }]);
 }
 
@@ -417,7 +581,7 @@ function sendAppointmentEmail_(name, phone, dateStr, label, email, isReschedule)
 // reschedule.html, pre-filled with this patient's own details and the
 // original booking's Id, so picking a new slot there can be linked back to
 // this cancelled row automatically.
-function sendCancellationEmail_(apptId, name, phone, email, dateStr, label) {
+function sendCancellationEmail_(apptId, name, phone, email, dateStr, label, reason) {
   const link = SITE_BASE_URL + 'reschedule.html'
     + '?id=' + encodeURIComponent(apptId)
     + '&name=' + encodeURIComponent(name || '')
@@ -427,7 +591,7 @@ function sendCancellationEmail_(apptId, name, phone, email, dateStr, label) {
   const subject = 'Your PeerOna appointment has been cancelled';
   const body =
     'Hi ' + (name || 'there') + ',\n\n' +
-    'Your appointment on ' + dateStr + ' (' + (label || '-') + ') has been cancelled by the clinic.\n\n' +
+    'Your appointment on ' + dateStr + ' (' + (label || '-') + ') has been cancelled by the clinic.' + (reason ? ' Reason: ' + reason + '.' : '') + '\n\n' +
     'If you would like to pick a new time, you can book it yourself here:\n' + link + '\n\n' +
     'Or just get in touch with us directly if you would rather reschedule by phone.\n\n' +
     '— PeerOna';
@@ -485,6 +649,11 @@ function linkRescheduledAppointment_(originalId, newId) {
   if (status === STATUS_CANCELLED && !existingLink) {
     sheet.getRange(row, 10).setValue(STATUS_RESCHEDULED);
     sheet.getRange(row, 11).setValue(newId);
+    // The patient triggered this by rebooking from the cancellation email's
+    // reschedule link, so it's logged as their action, same as the new
+    // booking it's paired with.
+    logTransactionSafe_('BookedAppointments', originalId, ACTION_ID_MODIFY, USER_ID_PATIENT,
+      'Status: Cancelled -> ReScheduled | ReScheduledId:' + newId);
   }
 }
 
@@ -523,8 +692,11 @@ function handleAppointment_(params) {
 
     const sheet = getOrCreateAppointmentsSheet_();
     const newId = getNextId_(sheet);
-    sheet.appendRow([newId, new Date(), name, phone, date, startTime, endTime, label, email, '', '']);
+    sheet.appendRow([newId, new Date(), name, phone, date, startTime, endTime, label, email, '', '', '', '']);
     sortAppointmentsSheet_(sheet);
+    logTransactionSafe_('BookedAppointments', newId, ACTION_ID_CREATE, USER_ID_PATIENT,
+      'Name:' + name + ' | Phone:' + phone + ' | Email:' + (email || '-') +
+      (originalId ? ' | RescheduledFrom:' + originalId : ''));
 
     if (originalId) {
       try {
@@ -572,7 +744,35 @@ function getOrCreateSettingsSheet_() {
     DEFAULT_SETTINGS.forEach((row) => sheet.appendRow(row));
     sheet.autoResizeColumns(1, 2);
   }
+  ensureRolePasscodes_(sheet);
   return sheet;
+}
+
+// One-time, self-healing upgrade: older Settings sheets only have a single
+// shared "Loki Passcode" row (one passcode for every admin, no way to tell
+// who used it). The first time this runs against one of those, it adds
+// "Dr Lokesh Passcode" (seeded with that same old shared value, so Dr.
+// Lokesh's existing passcode keeps working unchanged) and "Receptionist
+// Passcode" (seeded with a new placeholder — change it in the sheet and
+// give it to the receptionist). Safe to call every time: it only appends
+// rows that are still missing, so it's a no-op once both exist. The old
+// "Loki Passcode" row, if present, is left in the sheet but no longer
+// checked by anything (resolveLokiUser_ only looks at the two role rows).
+function ensureRolePasscodes_(sheet) {
+  const lastRow = sheet.getLastRow();
+  const data = lastRow < 2 ? [] : sheet.getRange(2, 1, lastRow - 1, 2).getValues();
+  const keys = data.map((row) => normalizeSettingKey_(row[0]));
+  const rowsToAdd = [];
+
+  if (keys.indexOf('drlokeshpasscode') === -1) {
+    const oldShared = data.filter((row) => normalizeSettingKey_(row[0]) === 'lokipasscode')[0];
+    const seed = oldShared ? String(oldShared[1] || '').trim() : '';
+    rowsToAdd.push(['Dr Lokesh Passcode', seed || 'Lokesh@Peerona2026']);
+  }
+  if (keys.indexOf('receptionistpasscode') === -1) {
+    rowsToAdd.push(['Receptionist Passcode', 'Receptionist@Peerona2026']);
+  }
+  rowsToAdd.forEach((row) => sheet.appendRow(row));
 }
 
 // "Clinic Address" -> "clinicaddress", so the sheet's Key column can be
@@ -604,13 +804,30 @@ function getSettings_() {
  * Dr. Lokesh's page (loki.html) — appointments + messages admin
  * ============================================================ */
 
-// Checks a passcode the client sent against the "Loki Passcode" Settings
-// value. No passcode configured in Settings => refuse everything (fail
-// closed, never fail open).
+// Checks a passcode the client sent against either role's Settings value
+// (Dr Lokesh Passcode / Receptionist Passcode). No passcode configured in
+// Settings => refuse everything (fail closed, never fail open).
 function checkLokiPasscode_(provided) {
-  const expected = (getSettings_().lokipasscode || '').trim();
-  if (!expected) return false;
-  return String(provided || '').trim() === expected;
+  return !!resolveLokiUser_(provided);
+}
+
+// Same check as checkLokiPasscode_, but also says WHICH of the two admin
+// roles the passcode belongs to — { id, name } matching a Users sheet row,
+// or null if it matches neither. This is how the audit log knows whether
+// to credit a loki.html save to Dr Lokesh or the Receptionist, without the
+// frontend having to say who's using it — it's determined purely from
+// which passcode they typed in.
+function resolveLokiUser_(provided) {
+  const given = String(provided || '').trim();
+  if (!given) return null;
+  const settings = getSettings_();
+  if (settings.drlokeshpasscode && given === settings.drlokeshpasscode) {
+    return { id: USER_ID_DR_LOKESH, name: 'Dr Lokesh' };
+  }
+  if (settings.receptionistpasscode && given === settings.receptionistpasscode) {
+    return { id: USER_ID_RECEPTIONIST, name: 'Receptionist' };
+  }
+  return null;
 }
 
 // A Timestamp cell is a real Date (or sometimes a date-looking string) —
@@ -636,7 +853,7 @@ function getAppointmentsForLoki_() {
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
 
-  const data = sheet.getRange(2, 1, lastRow - 1, 11).getValues();
+  const data = sheet.getRange(2, 1, lastRow - 1, 13).getValues();
   return data.map((row) => ({
     id: row[0],
     timestamp: formatTimestampIso_(row[1]),
@@ -648,7 +865,9 @@ function getAppointmentsForLoki_() {
     timeSlotLabel: String(row[7] || ''),
     email: String(row[8] || ''),
     status: String(row[9] || ''),
-    rescheduledId: row[10] === '' || row[10] === null ? '' : row[10]
+    rescheduledId: row[10] === '' || row[10] === null ? '' : row[10],
+    prescription: String(row[11] || ''),
+    cancelledReason: String(row[12] || '')
   }));
 }
 
@@ -689,13 +908,21 @@ function findMessageRowByTimestamp_(sheet, isoString) {
   return -1;
 }
 
-// Applies a batch of { id, status } Status-dropdown changes from
-// loki.html to the "Booked Appointments" sheet. A row newly set to
-// Cancelled (wasn't Cancelled before) gets an automatic cancellation +
-// reschedule-link email, but only if the patient gave an email address
-// when booking.
+// Applies a batch of partial { id, status?, prescription?, cancelledReason? }
+// changes from loki.html to the "Booked Appointments" sheet. Each change
+// object only touches the fields actually present on it (checked via
+// hasOwnProperty), so the same endpoint safely serves the Appointments
+// section's batched Status+Cancelled Reason save, a single-field
+// Prescription save from its modal, and the Cancel Dates sections' bulk
+// { status: 'Cancelled', cancelledReason } saves, without any of them
+// accidentally blanking a field they didn't intend to touch. A row newly
+// set to Cancelled (wasn't Cancelled before) gets an automatic
+// cancellation + reschedule-link email, but only if the patient gave an
+// email address when booking; the email includes the Cancelled Reason
+// when one was set.
 function handleLokiSaveApptStatus_(params) {
-  if (!checkLokiPasscode_(params.passcode)) {
+  const actingUser = resolveLokiUser_(params.passcode);
+  if (!actingUser) {
     return jsonResponse_({ result: 'error', message: 'Invalid passcode.' });
   }
 
@@ -720,11 +947,35 @@ function handleLokiSaveApptStatus_(params) {
       const row = findRowById_(sheet, change.id);
       if (row === -1) return;
 
-      const newStatus = STATUS_VALUES.indexOf(change.status) !== -1 ? change.status : '';
       const wasStatus = String(sheet.getRange(row, 10).getValue() || '').trim();
-      sheet.getRange(row, 10).setValue(newStatus);
+      let newStatus = wasStatus;
+      const statusGiven = Object.prototype.hasOwnProperty.call(change, 'status');
+      const changeDetails = [];
+      if (statusGiven) {
+        newStatus = STATUS_VALUES.indexOf(change.status) !== -1 ? change.status : '';
+        sheet.getRange(row, 10).setValue(newStatus);
+        changeDetails.push('Status: ' + (wasStatus || '-') + ' -> ' + (newStatus || '-'));
+      }
 
-      if (newStatus === STATUS_CANCELLED && wasStatus !== STATUS_CANCELLED) {
+      if (Object.prototype.hasOwnProperty.call(change, 'prescription')) {
+        sheet.getRange(row, 12).setValue(String(change.prescription || ''));
+        changeDetails.push('Prescription updated');
+      }
+
+      let reasonToUse = String(sheet.getRange(row, 13).getValue() || '').trim();
+      if (Object.prototype.hasOwnProperty.call(change, 'cancelledReason')) {
+        reasonToUse = CANCEL_REASON_VALUES.indexOf(change.cancelledReason) !== -1 ? change.cancelledReason : '';
+        sheet.getRange(row, 13).setValue(reasonToUse);
+        changeDetails.push('CancelledReason: ' + (reasonToUse || '-'));
+      }
+
+      // One TransactionLog row per booking touched by this save (even when
+      // the save button saved several bookings at once), so each row can be
+      // traced back to exactly which booking it changed and how.
+      logTransactionSafe_('BookedAppointments', change.id, ACTION_ID_MODIFY, actingUser.id,
+        changeDetails.length ? changeDetails.join(' | ') : '');
+
+      if (statusGiven && newStatus === STATUS_CANCELLED && wasStatus !== STATUS_CANCELLED) {
         const email = String(sheet.getRange(row, 9).getValue() || '').trim();
         if (email) {
           try {
@@ -733,7 +984,7 @@ function handleLokiSaveApptStatus_(params) {
             const phone = sheet.getRange(row, 4).getValue();
             const date = formatDateForCompare_(sheet.getRange(row, 5).getValue());
             const label = sheet.getRange(row, 8).getValue();
-            sendCancellationEmail_(apptId, name, phone, email, date, label);
+            sendCancellationEmail_(apptId, name, phone, email, date, label, reasonToUse);
             notifiedEmails.push(email);
           } catch (mailErr) {
             // Swallow — the status change itself is already saved.
@@ -752,7 +1003,8 @@ function handleLokiSaveApptStatus_(params) {
 // Saves Dr. Lokesh's reply (from loki.html) into the InLineReply column of
 // the matching "Messages" row.
 function handleLokiSendReply_(params) {
-  if (!checkLokiPasscode_(params.passcode)) {
+  const actingUser = resolveLokiUser_(params.passcode);
+  if (!actingUser) {
     return jsonResponse_({ result: 'error', message: 'Invalid passcode.' });
   }
 
@@ -777,6 +1029,8 @@ function handleLokiSendReply_(params) {
     }
 
     sheet.getRange(row, 10).setValue(reply);
+    const messageId = sheet.getRange(row, 1).getValue();
+    logTransactionSafe_('Messages', messageId, ACTION_ID_MODIFY, actingUser.id, 'Reply added');
     return jsonResponse_({ result: 'success' });
 
   } catch (err) {
@@ -797,7 +1051,18 @@ function doGet(e) {
     return jsonResponse_({ bookedSlots: getBookedSlotsForDate_(params.date) });
   }
   if (params.action === 'config') {
-    return jsonResponse_(getSettings_());
+    // Public, unauthenticated endpoint (the main site reads the clinic
+    // address/maps link from it before anyone logs in) — so passcodes must
+    // never be included here, or anyone could read both of them and
+    // impersonate Dr Lokesh or the Receptionist, defeating the audit log
+    // this whole file is built around. Filtered by substring (not an exact
+    // key list) so any future "...Passcode" setting is caught automatically.
+    const settings = getSettings_();
+    const publicSettings = {};
+    Object.keys(settings).forEach((key) => {
+      if (key.indexOf('passcode') === -1) publicSettings[key] = settings[key];
+    });
+    return jsonResponse_(publicSettings);
   }
   if (params.action === 'lokiVerifyPasscode') {
     return jsonResponse_({ valid: checkLokiPasscode_(params.passcode) });

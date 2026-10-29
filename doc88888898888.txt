@@ -1,0 +1,48 @@
+Users
+
+id,name
+
+1 Dr Lokesh
+2 Receptionist
+3 Patient
+
+Action
+
+id,ActionName
+1 Create
+2 Modify
+
+TransactionLog
+
+
+TimeStamp,SheetName,Action,UserId,AddtionalData
+
+
+I want to capture the actions who modified at time the data on Booed Appointment sheet and Message Us sheet for all actions in
+the website.So that if there is a problem we can track who has created or modify or delete(in future) data.
+
+
+Please create a sheet called Users, which contains User table with Id(incremented by 1),Name
+Below are data for now
+
+
+id name
+1 Dr Lokesh
+2 Receptionist
+3 Patient
+
+Please create a sheet called Actions, which contains Actions table with Id(incremented by 1),ActionName
+Below are data for now
+
+id ActionName
+1 Create
+2 Modify
+3 Modify
+
+Please create a sheet called TransactionLog, which contains TransactionLog table with Id(incremented by 1),SheetNameAction,UserId,AddtionalData
+Below are example data for now
+
+TimeStamp SheetName Action UserId AddtionalData
+27/10/2026 14:24:38 BookedAppointments 1 1 user1@gmail.com
+
+27/10/2026 14:24:38 BookedAppointments 1 1 756565665
