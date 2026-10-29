@@ -1065,7 +1065,13 @@ function doGet(e) {
     return jsonResponse_(publicSettings);
   }
   if (params.action === 'lokiVerifyPasscode') {
-    return jsonResponse_({ valid: checkLokiPasscode_(params.passcode) });
+    // Also tells the client WHICH role the passcode belongs to ('Dr Lokesh'
+    // or 'Receptionist', matching the Users sheet names), so loki.html can
+    // show a "Welcome <name>" message and label its Logout button -- this
+    // never exposes the passcodes themselves, only the already-resolved
+    // role name for the one the caller just typed in correctly.
+    var lokiUser = resolveLokiUser_(params.passcode);
+    return jsonResponse_({ valid: !!lokiUser, role: lokiUser ? lokiUser.name : '' });
   }
   if (params.action === 'lokiAppointments') {
     if (!checkLokiPasscode_(params.passcode)) {

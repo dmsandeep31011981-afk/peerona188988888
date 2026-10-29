@@ -518,6 +518,11 @@ button.contact-card-link { width: 100%; border: none; font: inherit; }
 @media (max-width: 640px) {
   .site-toast { top: 12px; padding: 10px 20px; font-size: 0.86rem; }
 }
+/* "Welcome <name>" toast shown right after loki.html unlocks -- same
+   shape/behaviour as the green "Saved" toast, but in the site's brand
+   accent orange instead of green, so the two are never confused. */
+.site-toast.toast-welcome { border-color: #ff3300; color: #ff3300; }
+.site-toast.toast-welcome::before { background: #ff3300; }
 
 /* ---------- Form "saving" overlay (shown over Appointment / Message Us
    fields while the save request to the sheet is in flight) ---------- */

@@ -36,19 +36,25 @@
     select.value = initialValue || '';
     return select;
   }
-  /* ---------- "Saved" toast (shown briefly after any save to the sheet) ---------- */
+  /* ---------- "Saved" / "Welcome" toast (shown briefly after a save, or
+     right after unlocking) ---------- */
   var savedToastEl = null;
   var savedToastTimer = null;
-  function showSavedToast(message) {
+  // extraClass (optional) adds a colour variant on top of the base
+  // '.site-toast' look -- e.g. 'toast-welcome' for the orange "Welcome
+  // <name>" message, kept distinct from the green default used for
+  // "Saved" so the two are never confused. Re-set on every call (not just
+  // when the element is first created) so the toast never keeps a stale
+  // variant class from a previous, differently-coloured message.
+  function showSavedToast(message, extraClass) {
     if (!savedToastEl) {
       savedToastEl = document.createElement('div');
-      savedToastEl.className = 'site-toast';
       savedToastEl.setAttribute('role', 'status');
       savedToastEl.setAttribute('aria-live', 'polite');
       document.body.appendChild(savedToastEl);
     }
+    savedToastEl.className = 'site-toast' + (extraClass ? ' ' + extraClass : '');
     savedToastEl.textContent = message || 'Saved';
-    savedToastEl.classList.remove('is-visible');
     void savedToastEl.offsetWidth; // restart the transition on back-to-back saves
     savedToastEl.classList.add('is-visible');
     if (savedToastTimer) clearTimeout(savedToastTimer);
@@ -160,18 +166,37 @@
   var app = document.getElementById('lokiApp');
   var gateForm = document.getElementById('lokiGateForm');
   var gateStatus = document.getElementById('lokiGateStatus');
+  var gateSavingOverlay = document.getElementById('lokiGateSavingOverlay');
   var passcodeInput = document.getElementById('lokiPasscodeInput');
   var lockBtn = document.getElementById('lokiLockBtn');
+  var lockLabel = document.getElementById('lokiLockLabel');
 
   var currentPasscode = '';
+  var currentRole = ''; // 'Dr Lokesh' or 'Receptionist', as resolveLokiUser_ names them in Code.gs
 
-  function unlock(passcode) {
+  // Maps the backend's role name to what the page shows for it -- the
+  // Receptionist role reads as "Management" everywhere in the UI, while
+  // the backend/Users sheet keeps calling it "Receptionist" so the audit
+  // log stays unchanged.
+  function roleDisplayName(role) {
+    if (role === 'Dr Lokesh') return 'Dr.Lokesh';
+    if (role === 'Receptionist') return 'Management';
+    return role || '';
+  }
+
+  function unlock(passcode, role) {
     currentPasscode = passcode;
+    currentRole = role || '';
     gate.hidden = true;
     app.hidden = false;
+    var displayName = roleDisplayName(currentRole);
+    if (lockLabel) lockLabel.textContent = (displayName || 'Dr.Lokesh/Management') + ' Logout';
+    if (displayName) showSavedToast('Welcome ' + displayName, 'toast-welcome');
   }
   function lock() {
     currentPasscode = '';
+    currentRole = '';
+    if (lockLabel) lockLabel.textContent = 'Logout';
     safeSessionRemove(PASSCODE_STORAGE_KEY);
     app.hidden = true;
     gate.hidden = false;
@@ -184,11 +209,14 @@
     return GOOGLE_SHEET_WEBAPP_URL + '?' + params.toString();
   }
 
+  // Resolves to { valid, role } -- role is 'Dr Lokesh' or 'Receptionist'
+  // (blank when the passcode didn't match either), straight from Code.gs's
+  // resolveLokiUser_ so the client never has to know the passcodes themselves.
   function verifyPasscode(passcode) {
     var params = new URLSearchParams({ action: 'lokiVerifyPasscode', passcode: passcode });
     return fetch(GOOGLE_SHEET_WEBAPP_URL + '?' + params.toString())
       .then(function (res) { return res.json(); })
-      .then(function (data) { return !!data.valid; });
+      .then(function (data) { return { valid: !!data.valid, role: data.role || '' }; });
   }
 
   gateForm.addEventListener('submit', function (e) {
@@ -197,14 +225,16 @@
     if (!val) return;
     var submitBtn = gateForm.querySelector('button[type="submit"]');
     submitBtn.disabled = true;
-    gateStatus.textContent = 'Checking…';
+    passcodeInput.disabled = true;
+    gateStatus.textContent = '';
     gateStatus.className = 'form-status';
+    gateSavingOverlay.classList.add('is-active');
 
-    verifyPasscode(val).then(function (ok) {
-      if (ok) {
+    verifyPasscode(val).then(function (result) {
+      if (result.valid) {
         safeSessionSet(PASSCODE_STORAGE_KEY, val);
         gateStatus.textContent = '';
-        unlock(val);
+        unlock(val, result.role);
       } else {
         gateStatus.textContent = 'Incorrect passcode.';
         gateStatus.className = 'form-status error';
@@ -214,6 +244,8 @@
       gateStatus.className = 'form-status error';
     }).finally(function () {
       submitBtn.disabled = false;
+      passcodeInput.disabled = false;
+      gateSavingOverlay.classList.remove('is-active');
     });
   });
 
@@ -222,8 +254,8 @@
   (function tryAutoUnlock() {
     var saved = safeSessionGet(PASSCODE_STORAGE_KEY);
     if (!saved) return;
-    verifyPasscode(saved).then(function (ok) {
-      if (ok) unlock(saved);
+    verifyPasscode(saved).then(function (result) {
+      if (result.valid) unlock(saved, result.role);
       else safeSessionRemove(PASSCODE_STORAGE_KEY);
     }).catch(function () { /* stay on the gate, user can retype */ });
   })();

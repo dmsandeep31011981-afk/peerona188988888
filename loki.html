@@ -18,9 +18,10 @@
 <div class="loki-gate" id="lokiGate">
   <div class="loki-gate-box">
     <div class="loki-gate-icon" aria-hidden="true">&#128272;</div>
-    <h1>Dr. Lokesh &mdash; Private Access</h1>
+    <h1>Dr.Lokesh/Management &mdash; Private Access</h1>
     <p class="modal-sub">Enter the passcode to view appointments and messages.</p>
     <form id="lokiGateForm" class="message-form" autocomplete="off">
+      <div class="form-saving-overlay" id="lokiGateSavingOverlay"><span class="loki-spinner"></span></div>
       <label for="lokiPasscodeInput">Passcode</label>
       <input type="password" id="lokiPasscodeInput" name="passcode" placeholder="Enter passcode" required autofocus>
       <button type="submit" class="btn btn-primary btn-block btn-lg">Enter</button>
@@ -38,7 +39,7 @@
         <span class="logo">Pee<span>rOna</span></span>
         <span class="brand-tagline">Dr. Lokesh &mdash; Appointments &amp; Messages</span>
       </div>
-      <button type="button" class="btn btn-outline loki-lock-btn" id="lokiLockBtn"><i data-icon="x"></i> Lock</button>
+      <button type="button" class="btn btn-outline loki-lock-btn" id="lokiLockBtn"><i data-icon="x"></i> <span id="lokiLockLabel">Logout</span></button>
     </div>
   </header>
 
