@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var GOOGLE_SHEET_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbwOOx11a_BeZd83JR9JENYaDEKLckQ9SxrpncR_6cnUrOcii79jMGjbbfg6Bse1wB9UhA/exec';
+  var GOOGLE_SHEET_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbw485zzrMSWZ9uCpLTy4YaDfKC6xVHDOpGAVywC6dGi963b8PGRgq5AVEBxdmJ2Khy_fA/exec';
   var PASSCODE_STORAGE_KEY = 'lokiPasscode';
   var WINDOW_DAYS = 7; // default visible date-window size, both sections
   var MAX_REPLY_WORDS = 1000;
@@ -468,7 +468,7 @@
     var prescriptionBtn = document.createElement('button');
     prescriptionBtn.type = 'button';
     prescriptionBtn.className = 'appt-row-prescription-btn';
-    prescriptionBtn.textContent = a.prescription ? 'Edit Prescription' : 'Add Prescription';
+    prescriptionBtn.textContent = (a.prescription || a.prescriptionImage || a.prescriptionImage2) ? 'Edit Prescription' : 'Add Prescription';
     prescriptionBtn.addEventListener('click', function () { openPrescriptionModal(a); });
     controls.appendChild(prescriptionBtn);
 
@@ -540,7 +540,9 @@
     var expanded = apptToggle.getAttribute('aria-expanded') === 'true';
     apptToggle.setAttribute('aria-expanded', String(!expanded));
     apptBody.hidden = expanded;
-    if (!expanded) loadAppointments();
+    // Every time the section is opened, snap back to today's window --
+    // don't leave it wherever a previous Earlier/Later click left off.
+    if (!expanded) { apptWindowStart = startOfToday(); loadAppointments(); }
   });
   apptPrevBtn.addEventListener('click', function () { apptWindowStart = addDays(apptWindowStart, -WINDOW_DAYS); reloadAppointments(); });
   apptNextBtn.addEventListener('click', function () { apptWindowStart = addDays(apptWindowStart, WINDOW_DAYS); reloadAppointments(); });
@@ -698,7 +700,9 @@
     var expanded = msgToggle.getAttribute('aria-expanded') === 'true';
     msgToggle.setAttribute('aria-expanded', String(!expanded));
     msgBody.hidden = expanded;
-    if (!expanded) loadMessages();
+    // Same as Appointments -- reset to the window that includes today
+    // every time this section is (re)opened.
+    if (!expanded) { msgWindowStart = addDays(startOfToday(), -(WINDOW_DAYS - 1)); loadMessages(); }
   });
   msgPrevBtn.addEventListener('click', function () { msgWindowStart = addDays(msgWindowStart, -WINDOW_DAYS); reloadMessages(); });
   msgNextBtn.addEventListener('click', function () { msgWindowStart = addDays(msgWindowStart, WINDOW_DAYS); reloadMessages(); });
@@ -760,8 +764,17 @@
   }
   function closePhotosModal() { photosModalOverlay.classList.remove('is-open'); }
   closePhotosModalBtn.addEventListener('click', closePhotosModal);
+  var photosModalMouseDownOnOverlay = false;
+  photosModalOverlay.addEventListener('mousedown', function (e) {
+    photosModalMouseDownOnOverlay = (e.target === photosModalOverlay);
+  });
   photosModalOverlay.addEventListener('click', function (e) {
-    if (e.target === photosModalOverlay) closePhotosModal();
+    // Only treat this as "clicked the backdrop to close" when BOTH the press
+    // and the release landed on the backdrop itself -- otherwise selecting
+    // text that happens to end with the mouse released over the backdrop
+    // would wrongly close the modal.
+    if (e.target === photosModalOverlay && photosModalMouseDownOnOverlay) closePhotosModal();
+    photosModalMouseDownOnOverlay = false;
   });
 
   /* ---------- Reply modal ---------- */
@@ -793,8 +806,17 @@
   }
   function closeReplyModal() { replyModalOverlay.classList.remove('is-open'); replyTargetTimestamp = null; }
   closeReplyModalBtn.addEventListener('click', closeReplyModal);
+  var replyModalMouseDownOnOverlay = false;
+  replyModalOverlay.addEventListener('mousedown', function (e) {
+    replyModalMouseDownOnOverlay = (e.target === replyModalOverlay);
+  });
   replyModalOverlay.addEventListener('click', function (e) {
-    if (e.target === replyModalOverlay) closeReplyModal();
+    // Only close when both the press and the release landed on the backdrop
+    // itself -- otherwise selecting reply text (e.g. dragging right-to-left)
+    // that ends with the mouse released over the backdrop would wrongly
+    // close the modal.
+    if (e.target === replyModalOverlay && replyModalMouseDownOnOverlay) closeReplyModal();
+    replyModalMouseDownOnOverlay = false;
   });
 
   replyForm.addEventListener('submit', function (e) {
@@ -850,10 +872,117 @@
   var closePrescriptionModalBtn = document.getElementById('closePrescriptionModal');
   var prescriptionModalSub = document.getElementById('prescriptionModalSub');
   var prescriptionForm = document.getElementById('prescriptionForm');
+  var prescriptionSavingOverlay = document.getElementById('prescriptionSavingOverlay');
   var prescriptionTextarea = document.getElementById('prescriptionTextarea');
   var prescriptionWordCount = document.getElementById('prescriptionWordCount');
   var prescriptionFormStatus = document.getElementById('prescriptionFormStatus');
   var prescriptionTargetId = null;
+
+  var MAX_PRESCRIPTION_IMAGE_BYTES = 4 * 1024 * 1024; // 4 MB, same cap as the public site's photo uploads
+
+  function lokiReadFileAsBase64(file) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function () {
+        // reader.result looks like "data:image/jpeg;base64,AAAA..." -- keep only the base64 part.
+        resolve(String(reader.result).split(',')[1] || '');
+      };
+      reader.onerror = function () { reject(reader.error); };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // One of these per optional photo slot (1 and 2). Tracks everything
+  // needed to render its preview and to know what (if anything) Save
+  // Prescription needs to send to the server for that slot.
+  function makeRxImageSlot(slot) {
+    return {
+      slot: slot,
+      input: document.getElementById('prescriptionImage' + slot),
+      preview: document.getElementById('prescriptionImage' + slot + 'Preview'),
+      link: document.getElementById('prescriptionImage' + slot + 'Link'),
+      thumb: document.getElementById('prescriptionImage' + slot + 'Thumb'),
+      viewBtn: document.getElementById('prescriptionImage' + slot + 'View'),
+      removeBtn: document.getElementById('prescriptionImage' + slot + 'Remove'),
+      existingUrl: '',   // Drive link already saved on the server for this booking, if any
+      pendingFile: null, // a newly-chosen file, not yet uploaded
+      pendingRemove: false, // user asked to remove the existing image, not yet saved
+      objectUrl: null    // local blob: URL for the pending-file preview, revoked on change/close
+    };
+  }
+  var rxImageSlots = [makeRxImageSlot(1), makeRxImageSlot(2)];
+
+  function rxSlotReset(s) {
+    if (s.objectUrl) { URL.revokeObjectURL(s.objectUrl); s.objectUrl = null; }
+    s.existingUrl = '';
+    s.pendingFile = null;
+    s.pendingRemove = false;
+    s.input.value = '';
+    s.preview.hidden = true;
+  }
+
+  function rxSlotShowExisting(s, url) {
+    if (s.objectUrl) { URL.revokeObjectURL(s.objectUrl); s.objectUrl = null; }
+    s.existingUrl = url || '';
+    s.pendingFile = null;
+    s.pendingRemove = false;
+    s.input.value = '';
+    if (s.existingUrl) {
+      s.link.href = s.existingUrl;
+      s.thumb.src = s.existingUrl;
+      s.preview.hidden = false;
+    } else {
+      s.preview.hidden = true;
+    }
+  }
+
+  function rxSlotShowPendingFile(s, file) {
+    if (s.objectUrl) { URL.revokeObjectURL(s.objectUrl); s.objectUrl = null; }
+    s.pendingFile = file;
+    s.pendingRemove = false;
+    s.objectUrl = URL.createObjectURL(file);
+    s.link.href = s.objectUrl;
+    s.thumb.src = s.objectUrl;
+    s.preview.hidden = false;
+  }
+
+  rxImageSlots.forEach(function (s) {
+    s.viewBtn.addEventListener('click', function () {
+      // Reuse the existing Photos lightbox (already used for Message Us
+      // photos) instead of relying on the thumbnail's small new-tab link --
+      // same in-app viewing experience, with its loading/error handling,
+      // for whichever photo is currently showing in this slot (an already
+      // saved one, or a just-picked file not yet uploaded).
+      if (s.thumb.src) openPhotosModal([s.thumb.src]);
+    });
+    s.input.addEventListener('change', function () {
+      var file = s.input.files && s.input.files[0];
+      if (!file) return;
+      if (file.size > MAX_PRESCRIPTION_IMAGE_BYTES) {
+        prescriptionFormStatus.textContent = 'That photo is over 4 MB — please choose a smaller image.';
+        prescriptionFormStatus.className = 'form-status error';
+        s.input.value = '';
+        return;
+      }
+      prescriptionFormStatus.textContent = '';
+      prescriptionFormStatus.className = 'form-status';
+      rxSlotShowPendingFile(s, file);
+    });
+    s.removeBtn.addEventListener('click', function () {
+      if (s.pendingFile) {
+        // A just-picked, not-yet-saved photo -- discard it locally (no
+        // server call needed, nothing was uploaded yet) and fall back to
+        // whatever was already saved for this slot, if anything.
+        rxSlotShowExisting(s, s.existingUrl);
+        return;
+      }
+      // An already-saved photo -- mark it for removal; the actual delete
+      // happens together with the rest of this modal's changes when Save
+      // Prescription is clicked, same as everything else in this form.
+      s.pendingRemove = true;
+      s.preview.hidden = true;
+    });
+  });
 
   function updatePrescriptionWordCount() {
     var n = countWords(prescriptionTextarea.value);
@@ -867,16 +996,71 @@
     prescriptionModalSub.textContent = (a.name || 'Unknown') + ' (' + (a.phone || '-') + ') · ' + formatDateHeading(a.date) + ' · ' + (a.timeSlotLabel || '');
     prescriptionTextarea.value = a.prescription || '';
     updatePrescriptionWordCount();
+    rxSlotShowExisting(rxImageSlots[0], a.prescriptionImage || '');
+    rxSlotShowExisting(rxImageSlots[1], a.prescriptionImage2 || '');
     prescriptionFormStatus.textContent = '';
     prescriptionFormStatus.className = 'form-status';
     prescriptionModalOverlay.classList.add('is-open');
     prescriptionTextarea.focus();
   }
-  function closePrescriptionModal() { prescriptionModalOverlay.classList.remove('is-open'); prescriptionTargetId = null; }
+  function closePrescriptionModal() {
+    prescriptionModalOverlay.classList.remove('is-open');
+    prescriptionTargetId = null;
+    rxImageSlots.forEach(rxSlotReset);
+  }
   closePrescriptionModalBtn.addEventListener('click', closePrescriptionModal);
-  prescriptionModalOverlay.addEventListener('click', function (e) {
-    if (e.target === prescriptionModalOverlay) closePrescriptionModal();
+  var prescriptionModalMouseDownOnOverlay = false;
+  prescriptionModalOverlay.addEventListener('mousedown', function (e) {
+    prescriptionModalMouseDownOnOverlay = (e.target === prescriptionModalOverlay);
   });
+  prescriptionModalOverlay.addEventListener('click', function (e) {
+    // Only close when both the press and the release landed on the backdrop
+    // itself -- otherwise selecting prescription-notes text (e.g. dragging
+    // right-to-left) that ends with the mouse released over the backdrop
+    // would wrongly close the modal.
+    if (e.target === prescriptionModalOverlay && prescriptionModalMouseDownOnOverlay) closePrescriptionModal();
+    prescriptionModalMouseDownOnOverlay = false;
+  });
+
+  // Uploads or removes one image slot for the given booking id. Resolves
+  // to the resulting URL ('' if removed/never set) -- never rejects, so
+  // one failed photo never stops the Prescription text (or the other
+  // photo slot) from saving; the caller inspects .ok to report it.
+  function saveRxImageSlot(bookingId, s) {
+    if (!s.pendingFile && !s.pendingRemove) {
+      return Promise.resolve({ ok: true, changed: false, url: s.existingUrl });
+    }
+
+    var fd = new FormData();
+    fd.append('action', 'lokiSavePrescriptionImage');
+    fd.append('passcode', currentPasscode);
+    fd.append('id', bookingId);
+    fd.append('slot', String(s.slot));
+
+    var sendIt;
+    if (s.pendingRemove) {
+      fd.append('remove', 'true');
+      sendIt = Promise.resolve(fd);
+    } else {
+      sendIt = lokiReadFileAsBase64(s.pendingFile).then(function (base64) {
+        fd.append('imageBase64', base64);
+        fd.append('imageName', s.pendingFile.name);
+        fd.append('imageMime', s.pendingFile.type || 'image/jpeg');
+        return fd;
+      });
+    }
+
+    return sendIt
+      .then(function (fd) { return fetch(GOOGLE_SHEET_WEBAPP_URL, { method: 'POST', body: fd }); })
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        if (data.result !== 'success') throw new Error(data.message || 'Could not save that photo.');
+        return { ok: true, changed: true, url: data.url || '' };
+      })
+      .catch(function (err) {
+        return { ok: false, changed: true, slot: s.slot, message: err && err.message ? err.message : 'Could not save that photo.' };
+      });
+  }
 
   prescriptionForm.addEventListener('submit', function (e) {
     e.preventDefault();
@@ -893,6 +1077,7 @@
     submitBtn.textContent = 'Saving…';
     prescriptionFormStatus.textContent = '';
     prescriptionFormStatus.className = 'form-status';
+    prescriptionSavingOverlay.classList.add('is-active');
 
     var targetId = prescriptionTargetId;
     var fd = new FormData();
@@ -900,13 +1085,46 @@
     fd.append('passcode', currentPasscode);
     fd.append('changes', JSON.stringify([{ id: targetId, prescription: text }]));
 
-    fetch(GOOGLE_SHEET_WEBAPP_URL, { method: 'POST', body: fd })
+    var textSave = fetch(GOOGLE_SHEET_WEBAPP_URL, { method: 'POST', body: fd })
       .then(function (res) { return res.json(); })
       .then(function (data) {
         if (data.result !== 'success') throw new Error(data.message || 'Could not save prescription.');
+        return { ok: true };
+      })
+      .catch(function (err) {
+        return { ok: false, message: err && err.message ? err.message : 'Could not save prescription.' };
+      });
+
+    Promise.all([textSave].concat(rxImageSlots.map(function (s) { return saveRxImageSlot(targetId, s); })))
+      .then(function (results) {
+        var textResult = results[0];
+        var imageResults = results.slice(1);
+        var failures = [];
+        if (!textResult.ok) failures.push(textResult.message);
 
         var a = appointmentsCache.filter(function (x) { return String(x.id) === String(targetId); })[0];
-        if (a) a.prescription = text;
+        if (textResult.ok && a) a.prescription = text;
+
+        // Only touch a slot's state when that slot actually had something
+        // to save (r.changed) -- an upload/removal that failed keeps its
+        // pending file/flag exactly as it was, so retrying Save tries that
+        // same slot again instead of silently dropping it; a slot that
+        // succeeded is reconciled to the now-committed server state right
+        // away (clears pendingFile/pendingRemove, swaps the preview over
+        // to the real Drive thumbnail).
+        imageResults.forEach(function (r, i) {
+          if (!r.ok) { failures.push(r.message); return; }
+          if (!r.changed) return;
+          rxSlotShowExisting(rxImageSlots[i], r.url);
+          if (a) { if (i === 0) a.prescriptionImage = r.url; else a.prescriptionImage2 = r.url; }
+        });
+
+        if (failures.length) {
+          prescriptionFormStatus.textContent = failures.join(' ');
+          prescriptionFormStatus.className = 'form-status error';
+          renderAppointments();
+          return;
+        }
 
         prescriptionFormStatus.textContent = 'Prescription saved.';
         prescriptionFormStatus.className = 'form-status success';
@@ -914,13 +1132,10 @@
         renderAppointments();
         setTimeout(closePrescriptionModal, 900);
       })
-      .catch(function (err) {
-        prescriptionFormStatus.textContent = err && err.message ? err.message : 'Something went wrong.';
-        prescriptionFormStatus.className = 'form-status error';
-      })
       .finally(function () {
         submitBtn.disabled = false;
         submitBtn.textContent = 'Save Prescription';
+        prescriptionSavingOverlay.classList.remove('is-active');
       });
   });
 

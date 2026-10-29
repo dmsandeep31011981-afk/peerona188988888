@@ -9,7 +9,7 @@
   'use strict';
 
   // Must match the deployed Apps Script web app URL used across the site.
-  var GOOGLE_SHEET_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbwOOx11a_BeZd83JR9JENYaDEKLckQ9SxrpncR_6cnUrOcii79jMGjbbfg6Bse1wB9UhA/exec';
+  var GOOGLE_SHEET_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbw485zzrMSWZ9uCpLTy4YaDfKC6xVHDOpGAVywC6dGi963b8PGRgq5AVEBxdmJ2Khy_fA/exec';
 
   // The cancellation email links here with ?id=<original booking's Id>
   // &name=...&phone=...&email=... — id lets the backend link the new

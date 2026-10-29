@@ -190,13 +190,46 @@
     <button type="button" class="modal-close" id="closePrescriptionModal" aria-label="Close"><i data-icon="x"></i></button>
     <h3>Prescription</h3>
     <p class="modal-sub" id="prescriptionModalSub">&mdash;</p>
+    <div class="modal-scroll-content">
     <form id="prescriptionForm" class="message-form">
-      <label for="prescriptionTextarea">Prescription notes</label>
-      <textarea id="prescriptionTextarea" rows="12" placeholder="Type the prescription / notes here (up to about 1000 words)..."></textarea>
+      <div class="form-saving-overlay" id="prescriptionSavingOverlay"><span class="loki-spinner"></span></div>
+      <label for="prescriptionTextarea">Prescription notes <span class="form-optional">(optional)</span></label>
+      <textarea id="prescriptionTextarea" rows="10" placeholder="Type the prescription / notes here (up to about 1000 words)..."></textarea>
       <span class="form-hint" id="prescriptionWordCount">0 / 1000 words</span>
+
+      <div class="loki-rx-image-grid">
+        <div class="loki-rx-image-field">
+          <label for="prescriptionImage1">Prescription photo <span class="form-optional">(optional)</span></label>
+          <input type="file" id="prescriptionImage1" accept="image/*">
+          <div class="loki-rx-image-preview" id="prescriptionImage1Preview" hidden>
+            <a href="#" target="_blank" rel="noopener" class="loki-rx-image-thumb" id="prescriptionImage1Link">
+              <img id="prescriptionImage1Thumb" alt="Prescription photo 1 preview">
+            </a>
+            <div class="loki-rx-image-actions">
+              <button type="button" class="loki-rx-image-view" id="prescriptionImage1View">View</button>
+              <button type="button" class="loki-rx-image-remove" id="prescriptionImage1Remove">Remove</button>
+            </div>
+          </div>
+        </div>
+        <div class="loki-rx-image-field">
+          <label for="prescriptionImage2">Prescription photo 2 <span class="form-optional">(optional)</span></label>
+          <input type="file" id="prescriptionImage2" accept="image/*">
+          <div class="loki-rx-image-preview" id="prescriptionImage2Preview" hidden>
+            <a href="#" target="_blank" rel="noopener" class="loki-rx-image-thumb" id="prescriptionImage2Link">
+              <img id="prescriptionImage2Thumb" alt="Prescription photo 2 preview">
+            </a>
+            <div class="loki-rx-image-actions">
+              <button type="button" class="loki-rx-image-view" id="prescriptionImage2View">View</button>
+              <button type="button" class="loki-rx-image-remove" id="prescriptionImage2Remove">Remove</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <button type="submit" class="btn btn-primary btn-block btn-lg">Save Prescription</button>
       <p class="form-status" id="prescriptionFormStatus" aria-live="polite"></p>
     </form>
+    </div>
   </div>
 </div>
 

@@ -21,7 +21,27 @@ body.loki-page { background: var(--cream); }
 .loki-gate-box .message-form { text-align: left; margin-top: 10px; }
 
 /* ---------- Header ---------- */
-.loki-header { background: var(--white); border-bottom: 1px solid var(--cream-dark); padding: 18px 0; }
+/* style.css sets `overflow-x: hidden` on <html> and <body> for the public
+   pages (to guard against decorative elements causing a horizontal
+   scrollbar). That alone is enough to break `position: sticky` in every
+   browser, because overflow-x != visible forces overflow-y to compute to
+   `auto`, turning html/body into the sticky element's scrolling ancestor
+   instead of the viewport -- the header then just scrolls away as if it
+   were static. loki.html has no wide/decorative elements that need the
+   guard, so undo it here (loki.css only loads on this page) so the
+   sticky Logout button below actually sticks. Verified with Playwright
+   at 375/480/640/700/1280px: no horizontal scrollbar appears. */
+html, body { overflow-x: visible; }
+
+.loki-header {
+  background: var(--white); border-bottom: 1px solid var(--cream-dark); padding: 18px 0;
+  /* Keep the Dr.Lokesh/Management Logout button reachable at the top-right
+     of the viewport while the page is scrolled, instead of scrolling away
+     with the rest of the content. z-index 50 sits above normal page content
+     but well below modals (1000), the passcode gate overlay (500) and the
+     "Saved"/"Welcome" toast (9999), so none of those are ever covered. */
+  position: sticky; top: 0; z-index: 50;
+}
 .loki-header-inner { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .loki-header .logo { font-family: var(--font-heading); font-weight: 700; font-size: 1.4rem; color: var(--text-dark); }
 .loki-header .logo span { color: #ff3300; }
@@ -261,8 +281,56 @@ body.loki-page { background: var(--cream); }
 #prescriptionTextarea { resize: vertical; min-height: 220px; }
 #prescriptionWordCount.over-limit { color: #d6453d; font-weight: 600; }
 
+/* Two optional "photo of the paper prescription" fields, shown side by
+   side on desktop and stacked on mobile (see the @media block below). */
+.loki-rx-image-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+  /* .message-form already puts -14px/-10px top margins on <label> to pull
+     it snug against the field above it; a grid child isn't "above" its
+     own label the way a plain flex-column sibling is, so that negative
+     margin would just eat into the grid gap above it instead. Cancel it
+     here only, and let the grid's own `gap` do the spacing instead. */
+  margin-top: 14px;
+}
+.loki-rx-image-grid .loki-rx-image-field label { margin-bottom: 8px; }
+.loki-rx-image-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.loki-rx-image-preview {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+  background: var(--cream); border-radius: var(--radius-sm);
+}
+/* Same UA-vs-author CSS override issue as .loki-save-bar elsewhere in this
+   file: an element's own `display: flex` class rule beats the browser's
+   built-in `[hidden] { display: none }` rule, so the `hidden` attribute
+   alone doesn't actually hide it. Needs this explicit override. */
+.loki-rx-image-preview[hidden] { display: none; }
+.loki-rx-image-thumb {
+  flex-shrink: 0; width: 52px; height: 52px; border-radius: 8px; overflow: hidden;
+  display: block; border: 1.5px solid #e9ddd6;
+}
+.loki-rx-image-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.loki-rx-image-actions { margin-left: auto; flex-shrink: 0; display: flex; gap: 8px; }
+.loki-rx-image-view {
+  padding: 7px 14px; font-size: 0.78rem; font-weight: 600;
+  border-radius: 50px; border: 1.5px solid var(--blush-dark); background: var(--white); color: var(--text-dark);
+  cursor: pointer; transition: var(--transition);
+}
+.loki-rx-image-view:hover { background: var(--blush-dark); border-color: var(--blush-dark); color: var(--white); }
+.loki-rx-image-remove {
+  flex-shrink: 0; padding: 7px 14px; font-size: 0.78rem; font-weight: 600;
+  border-radius: 50px; border: 1.5px solid #e9ddd6; background: var(--white); color: #c0392b;
+  cursor: pointer; transition: var(--transition);
+}
+.loki-rx-image-remove:hover { background: #c0392b; border-color: #c0392b; color: var(--white); }
+/* The Photos lightbox can now be opened from the "View" button while the
+   Prescription modal is already open (both are .modal-overlay, normally
+   the same z-index: 1000, so whichever is later in the HTML just paints
+   over the other). Give it a bump so it always lands on top of any modal
+   it's opened from, instead of rendering invisibly behind it. */
+#photosModalOverlay { z-index: 1050; }
+
 /* ---------- Mobile ---------- */
 @media (max-width: 640px) {
+  .loki-header { padding: 12px 0; }
   .loki-section-toggle { padding: 18px 18px; font-size: 1.05rem; }
   .loki-section-body { padding: 0 16px 20px; }
   .appt-row { padding: 12px 14px; }
@@ -285,6 +353,17 @@ body.loki-page { background: var(--cream); }
      flex-grow:1 stretching it further), leaving a large empty gap above
      the Cancel Selected button. Reset it to size by content on mobile. */
   .loki-reason-field { flex: 1 1 auto; }
+}
+@media (max-width: 640px) {
+  /* Stack the two Prescription photo fields instead of a cramped 2-col
+     grid, and trim the notes textarea a little so the whole modal (notes
+     + two photo fields + Save button) still fits comfortably without
+     excessive scrolling on a phone screen. */
+  .loki-rx-image-grid { grid-template-columns: 1fr; gap: 14px; }
+  #prescriptionTextarea { min-height: 140px; }
+  .loki-rx-image-thumb { width: 44px; height: 44px; }
+  .loki-rx-image-actions { flex-direction: column; gap: 6px; }
+  .loki-rx-image-view, .loki-rx-image-remove { padding: 6px 12px; font-size: 0.74rem; }
 }
 @media (max-width: 480px) {
   .loki-gate-box { padding: 32px 22px; }

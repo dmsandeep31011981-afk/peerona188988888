@@ -487,7 +487,7 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   initGlimpseCarousel('glimpseCarousel', 'glimpseTrack', 'glimpseAnchor');
-  initGlimpseCarousel('treatmentsCarousel', 'treatmentsTrack', null, 1); // 1 = treatment-shirodhara, centered on load
+  initGlimpseCarousel('treatmentsCarousel', 'treatmentsTrack', null, 11); // 11 = hero-facial-massage.jpg, centered on load
 
   /* ---------- Newsletter form ---------- */
   const newsletterForm = document.getElementById('newsletterForm');
@@ -507,7 +507,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Paste the Google Apps Script "Web app" URL you get after deploying the
   // script from the setup guide below. Looks like:
   // https://script.google.com/macros/s/AKfycb.../exec
-  const GOOGLE_SHEET_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbwOOx11a_BeZd83JR9JENYaDEKLckQ9SxrpncR_6cnUrOcii79jMGjbbfg6Bse1wB9UhA/exec';
+  const GOOGLE_SHEET_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbw485zzrMSWZ9uCpLTy4YaDfKC6xVHDOpGAVywC6dGi963b8PGRgq5AVEBxdmJ2Khy_fA/exec';
 
   // Global site settings (clinic address, and the Google Maps link its
   // "Visit Us" card / Book Appointment address row open) live in the
@@ -579,8 +579,17 @@ document.addEventListener('DOMContentLoaded', () => {
   if (openMessageModalBtn) openMessageModalBtn.addEventListener('click', openMessageModal);
   if (closeMessageModalBtn) closeMessageModalBtn.addEventListener('click', closeMessageModal);
   if (messageModalOverlay) {
+    let messageModalMouseDownOnOverlay = false;
+    messageModalOverlay.addEventListener('mousedown', (e) => {
+      messageModalMouseDownOnOverlay = (e.target === messageModalOverlay);
+    });
     messageModalOverlay.addEventListener('click', (e) => {
-      if (e.target === messageModalOverlay) closeMessageModal();
+      // Only close when both the press and the release landed on the
+      // backdrop itself -- otherwise selecting message text (e.g. dragging
+      // right-to-left) that ends with the mouse released over the backdrop
+      // would wrongly close the modal.
+      if (e.target === messageModalOverlay && messageModalMouseDownOnOverlay) closeMessageModal();
+      messageModalMouseDownOnOverlay = false;
     });
   }
 
@@ -742,8 +751,16 @@ document.addEventListener('DOMContentLoaded', () => {
   if (openAppointmentModalBtn) openAppointmentModalBtn.addEventListener('click', openAppointmentModal);
   if (closeAppointmentModalBtn) closeAppointmentModalBtn.addEventListener('click', closeAppointmentModal);
   if (appointmentModalOverlay) {
+    let appointmentModalMouseDownOnOverlay = false;
+    appointmentModalOverlay.addEventListener('mousedown', (e) => {
+      appointmentModalMouseDownOnOverlay = (e.target === appointmentModalOverlay);
+    });
     appointmentModalOverlay.addEventListener('click', (e) => {
-      if (e.target === appointmentModalOverlay) closeAppointmentModal();
+      // Only close when both the press and the release landed on the
+      // backdrop itself -- otherwise a text-selection drag that ends with
+      // the mouse released over the backdrop would wrongly close the modal.
+      if (e.target === appointmentModalOverlay && appointmentModalMouseDownOnOverlay) closeAppointmentModal();
+      appointmentModalMouseDownOnOverlay = false;
     });
   }
   if (apptDateInput) apptDateInput.addEventListener('change', refreshSlotAvailability);

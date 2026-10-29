@@ -27,13 +27,24 @@
  * "Booked Appointments" tab — created automatically on first booking, with
  * columns: Id | Timestamp | Name | Phone | Date | Start Time | End Time |
  * Time Slot | Email | Status | ReScheduled Id | Prescription | Cancelled
- * Reason. Email is optional (patients can leave it blank). Id is a running
- * number assigned automatically when a booking is made — it's what Dr.
- * Lokesh's Status dropdown and the reschedule link both key off. Status is
- * a dropdown Dr. Lokesh's page (loki.html) sets directly on each row: blank
- * (upcoming), "Cancelled", "ReScheduled", "Finished" or "Past".
- *   - Prescription is a free-text field (up to ~1000 words) Dr. Lokesh can
- *     fill in from a modal on loki.html, saved independently of Status.
+ * Reason | Prescription Image | Prescription Image 2. Email is optional
+ * (patients can leave it blank). Id is a running number assigned
+ * automatically when a booking is made — it's what Dr. Lokesh's Status
+ * dropdown and the reschedule link both key off. Status is a dropdown Dr.
+ * Lokesh's page (loki.html) sets directly on each row: blank (upcoming),
+ * "Cancelled", "ReScheduled", "Finished" or "Past".
+ *   - Prescription is a free-text field (up to ~1000 words) Dr. Lokesh or
+ *     the Receptionist can fill in from a modal on loki.html, saved
+ *     independently of Status. Entirely optional.
+ *   - Prescription Image / Prescription Image 2 are two optional photo
+ *     slots in that same modal, for a photo of the paper prescription
+ *     actually handed to the patient (taken with a phone camera or picked
+ *     from the gallery) — uploaded by Dr. Lokesh or the Receptionist, same
+ *     as the Prescription notes text. Each is saved to Drive (same shared
+ *     folder pattern as the "Message Us" photos) and the cell holds a
+ *     '=HYPERLINK(...)' formula pointing at it, or is left blank if that
+ *     slot was never used. Independent of the Prescription text field —
+ *     either, both, or neither can be filled in for a given booking.
  *   - Cancelled Reason is an optional dropdown, selectable per booking (or
  *     applied to a whole batch from the Cancel Dates section) whenever
  *     Status is set to Cancelled: "Doctor Got Busy in an Emergency",
@@ -169,6 +180,13 @@ const DEFAULT_SETTINGS = [
 // Up to 4 optional photos per submission: '', '2', '3', '4' match the
 // website's field names (image, image2, image3, image4).
 const IMAGE_FIELD_SUFFIXES = ['', '2', '3', '4'];
+
+// Column numbers (1-based) of the two optional Prescription Image slots
+// on "Booked Appointments" (added after Cancelled Reason). Each holds
+// either blank, or a '=HYPERLINK(...)' formula in the same shape the
+// Messages sheet's Image/Image2/Image3/Image4 columns use — see
+// handleLokiSavePrescriptionImage_ and getAppointmentsForLoki_.
+const PRESCRIPTION_IMAGE_COLUMNS = [14, 15];
 
 /**
  * Run this once manually from the Apps Script editor (select it in the
@@ -448,8 +466,8 @@ function getOrCreateAppointmentsSheet_() {
   let sheet = ss.getSheetByName(APPOINTMENTS_SHEET_NAME);
   if (!sheet) {
     sheet = ss.insertSheet(APPOINTMENTS_SHEET_NAME);
-    sheet.appendRow(['Id', 'Timestamp', 'Name', 'Phone', 'Date', 'Start Time', 'End Time', 'Time Slot', 'Email', 'Status', 'ReScheduled Id', 'Prescription', 'Cancelled Reason']);
-    sheet.getRange(1, 1, 1, 13).setFontWeight('bold');
+    sheet.appendRow(['Id', 'Timestamp', 'Name', 'Phone', 'Date', 'Start Time', 'End Time', 'Time Slot', 'Email', 'Status', 'ReScheduled Id', 'Prescription', 'Cancelled Reason', 'Prescription Image', 'Prescription Image 2']);
+    sheet.getRange(1, 1, 1, 15).setFontWeight('bold');
     sheet.setFrozenRows(1);
     // Keep Date/Start Time/End Time as plain text (not auto-converted to
     // date/time serials) so string comparisons stay simple and reliable.
@@ -460,19 +478,42 @@ function getOrCreateAppointmentsSheet_() {
     sheet.getRange(2, 10, 999, 1).setDataValidation(
       SpreadsheetApp.newDataValidation().requireValueInList(STATUS_VALUES, true).setAllowInvalid(false).build()
     );
-    // Prescription/Cancelled Reason stay plain text; Cancelled Reason also
-    // gets the same kind of dropdown validation as Status.
-    sheet.getRange(2, 12, 999, 2).setNumberFormat('@');
+    // Prescription/Cancelled Reason/Prescription Image/Prescription Image 2
+    // all stay plain text (the two image columns hold HYPERLINK formulas,
+    // which plain-text number formatting doesn't interfere with — it only
+    // affects how a literal value displays). Cancelled Reason also gets the
+    // same kind of dropdown validation as Status.
+    sheet.getRange(2, 12, 999, 4).setNumberFormat('@');
     sheet.getRange(2, 13, 999, 1).setDataValidation(
       SpreadsheetApp.newDataValidation().requireValueInList(CANCEL_REASON_VALUES, true).setAllowInvalid(false).build()
     );
   }
+  // Self-healing upgrade for a sheet created before the Prescription Image
+  // columns existed — see ensurePrescriptionImageColumns_.
+  ensurePrescriptionImageColumns_(sheet);
   // Lazily promote any blank ("Upcoming") row whose booking slot has
   // already ended to "Past" — runs on every access to this sheet (every
   // caller goes through this function), so no scheduled trigger is
   // needed. Cancelled/ReScheduled/Finished rows are never touched here.
   upgradePastAppointments_(sheet);
   return sheet;
+}
+
+// One-time, self-healing upgrade: an "Booked Appointments" sheet created
+// before this feature existed only has 13 columns (through Cancelled
+// Reason). The first time this runs against one of those, it appends the
+// two "Prescription Image" / "Prescription Image 2" headers so the sheet
+// matches what a brand-new one gets above. Safe to call every time: it
+// only touches the header row, and only when those columns aren't already
+// there, so it's a no-op on every call after the first.
+function ensurePrescriptionImageColumns_(sheet) {
+  const lastCol = Math.max(sheet.getLastColumn(), 1);
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map((h) => String(h || '').trim());
+  if (headers.indexOf('Prescription Image') !== -1) return; // already upgraded
+
+  sheet.getRange(1, 14, 1, 2).setValues([['Prescription Image', 'Prescription Image 2']]);
+  sheet.getRange(1, 14, 1, 2).setFontWeight('bold');
+  sheet.getRange(2, 14, 999, 2).setNumberFormat('@');
 }
 
 // Blank-status rows whose End Time has already passed (compared against
@@ -853,8 +894,13 @@ function getAppointmentsForLoki_() {
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
 
-  const data = sheet.getRange(2, 1, lastRow - 1, 13).getValues();
-  return data.map((row) => ({
+  // Prescription Image / Prescription Image 2 (columns 14-15) hold
+  // HYPERLINK formulas, same as the Messages sheet's photo columns, so
+  // both .getValues() (everything else) and .getFormulas() (just those
+  // two columns) are needed here.
+  const data = sheet.getRange(2, 1, lastRow - 1, 15).getValues();
+  const formulas = sheet.getRange(2, 14, lastRow - 1, 2).getFormulas();
+  return data.map((row, i) => ({
     id: row[0],
     timestamp: formatTimestampIso_(row[1]),
     name: String(row[2] || ''),
@@ -867,7 +913,9 @@ function getAppointmentsForLoki_() {
     status: String(row[9] || ''),
     rescheduledId: row[10] === '' || row[10] === null ? '' : row[10],
     prescription: String(row[11] || ''),
-    cancelledReason: String(row[12] || '')
+    cancelledReason: String(row[12] || ''),
+    prescriptionImage: extractHyperlinkUrl_(formulas[i][0]),
+    prescriptionImage2: extractHyperlinkUrl_(formulas[i][1])
   }));
 }
 
@@ -1000,6 +1048,66 @@ function handleLokiSaveApptStatus_(params) {
   return jsonResponse_({ result: 'success', notified: notifiedEmails });
 }
 
+// Receives one Prescription Image upload (or a removal) for a single
+// booking, from the Prescription modal on loki.html. params.slot is '1' or
+// '2' (which of the two optional Prescription Image columns), params.id is
+// the booking's Id. Uploading replaces whatever link was in that slot
+// before — the Drive file behind any earlier upload in that slot is
+// intentionally left alone (only the sheet's link is replaced), so a link
+// already handed out elsewhere doesn't suddenly break. Same Drive folder
+// and sharing settings as the "Message Us" photos (buildImageBlob_ /
+// saveImageAndGetUrl_), and the same 1-request-per-photo shape, so a
+// failed upload never risks the Prescription text save that normally
+// accompanies it from the same modal.
+function handleLokiSavePrescriptionImage_(params) {
+  const actingUser = resolveLokiUser_(params.passcode);
+  if (!actingUser) {
+    return jsonResponse_({ result: 'error', message: 'Invalid passcode.' });
+  }
+
+  const slot = Number(params.slot);
+  if (slot !== 1 && slot !== 2) {
+    return jsonResponse_({ result: 'error', message: 'Invalid image slot.' });
+  }
+  const column = PRESCRIPTION_IMAGE_COLUMNS[slot - 1];
+
+  const lock = LockService.getScriptLock();
+  lock.tryLock(10000);
+
+  try {
+    const sheet = getOrCreateAppointmentsSheet_();
+    const row = findRowById_(sheet, params.id);
+    if (row === -1) {
+      return jsonResponse_({ result: 'error', message: 'Booking not found.' });
+    }
+
+    if (params.remove === 'true') {
+      sheet.getRange(row, column).setValue('');
+      logTransactionSafe_('BookedAppointments', params.id, ACTION_ID_MODIFY, actingUser.id,
+        'Prescription Image ' + slot + ' removed');
+      return jsonResponse_({ result: 'success', url: '' });
+    }
+
+    const base64 = params.imageBase64;
+    if (!base64) {
+      return jsonResponse_({ result: 'error', message: 'No image received.' });
+    }
+
+    const blob = buildImageBlob_(base64, params.imageMime, params.imageName);
+    const url = saveImageAndGetUrl_(blob);
+    sheet.getRange(row, column).setValue('=HYPERLINK("' + url + '", "View Image")');
+    logTransactionSafe_('BookedAppointments', params.id, ACTION_ID_MODIFY, actingUser.id,
+      'Prescription Image ' + slot + ' uploaded');
+    return jsonResponse_({ result: 'success', url: url });
+
+  } catch (err) {
+    return jsonResponse_({ result: 'error', message: err.message });
+
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 // Saves Dr. Lokesh's reply (from loki.html) into the InLineReply column of
 // the matching "Messages" row.
 function handleLokiSendReply_(params) {
@@ -1092,6 +1200,9 @@ function doPost(e) {
   const params = e.parameter;
   if (params.action === 'lokiSaveApptStatus') {
     return handleLokiSaveApptStatus_(params);
+  }
+  if (params.action === 'lokiSavePrescriptionImage') {
+    return handleLokiSavePrescriptionImage_(params);
   }
   if (params.action === 'lokiSendReply') {
     return handleLokiSendReply_(params);
