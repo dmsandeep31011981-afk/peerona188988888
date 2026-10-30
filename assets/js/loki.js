@@ -468,7 +468,7 @@
     var prescriptionBtn = document.createElement('button');
     prescriptionBtn.type = 'button';
     prescriptionBtn.className = 'appt-row-prescription-btn';
-    prescriptionBtn.textContent = (a.prescription || a.prescriptionImage || a.prescriptionImage2) ? 'Edit Prescription' : 'Add Prescription';
+    prescriptionBtn.textContent = (a.prescription || (a.prescriptionImages && a.prescriptionImages.length)) ? 'Edit Prescription' : 'Add Prescription';
     prescriptionBtn.addEventListener('click', function () { openPrescriptionModal(a); });
     controls.appendChild(prescriptionBtn);
 
@@ -892,96 +892,115 @@
     });
   }
 
-  // One of these per optional photo slot (1 and 2). Tracks everything
-  // needed to render its preview and to know what (if anything) Save
-  // Prescription needs to send to the server for that slot.
-  function makeRxImageSlot(slot) {
-    return {
-      slot: slot,
-      input: document.getElementById('prescriptionImage' + slot),
-      preview: document.getElementById('prescriptionImage' + slot + 'Preview'),
-      link: document.getElementById('prescriptionImage' + slot + 'Link'),
-      thumb: document.getElementById('prescriptionImage' + slot + 'Thumb'),
-      viewBtn: document.getElementById('prescriptionImage' + slot + 'View'),
-      removeBtn: document.getElementById('prescriptionImage' + slot + 'Remove'),
-      existingUrl: '',   // Drive link already saved on the server for this booking, if any
-      pendingFile: null, // a newly-chosen file, not yet uploaded
-      pendingRemove: false, // user asked to remove the existing image, not yet saved
-      objectUrl: null    // local blob: URL for the pending-file preview, revoked on change/close
-    };
-  }
-  var rxImageSlots = [makeRxImageSlot(1), makeRxImageSlot(2)];
+  // Replaces the old fixed 2-slot rxImageSlots model -- any number of
+  // photos now, each tracked as one entry in this flat list:
+  //   existing: { type:'existing', id, url, pendingRemove }   -- id is the
+  //     AllImages row's own Id (handleLokiRemovePrescriptionImage_ targets
+  //     it directly, independent of any other photo on this booking).
+  //   pending:  { type:'pending', file, objectUrl }           -- a just
+  //     picked file, not yet uploaded; discarding it needs no server call.
+  var rxImageList = document.getElementById('prescriptionImageList');
+  var rxImageAddInput = document.getElementById('prescriptionImageAddInput');
+  var rxImageAddBtn = document.getElementById('prescriptionImageAddBtn');
+  var rxImages = [];
 
-  function rxSlotReset(s) {
-    if (s.objectUrl) { URL.revokeObjectURL(s.objectUrl); s.objectUrl = null; }
-    s.existingUrl = '';
-    s.pendingFile = null;
-    s.pendingRemove = false;
-    s.input.value = '';
-    s.preview.hidden = true;
+  function rxEntryPreviewSrc(entry) {
+    return entry.type === 'existing' ? entry.url : entry.objectUrl;
   }
 
-  function rxSlotShowExisting(s, url) {
-    if (s.objectUrl) { URL.revokeObjectURL(s.objectUrl); s.objectUrl = null; }
-    s.existingUrl = url || '';
-    s.pendingFile = null;
-    s.pendingRemove = false;
-    s.input.value = '';
-    if (s.existingUrl) {
-      s.link.href = s.existingUrl;
-      s.thumb.src = s.existingUrl;
-      s.preview.hidden = false;
-    } else {
-      s.preview.hidden = true;
+  function rxImagesReset() {
+    rxImages.forEach(function (e) { if (e.objectUrl) URL.revokeObjectURL(e.objectUrl); });
+    rxImages = [];
+    rxImageAddInput.value = '';
+    renderRxImageList();
+  }
+
+  function rxImagesShowExisting(images) {
+    rxImages.forEach(function (e) { if (e.objectUrl) URL.revokeObjectURL(e.objectUrl); });
+    rxImages = (images || []).map(function (img) {
+      return { type: 'existing', id: img.id, url: img.url, pendingRemove: false };
+    });
+    rxImageAddInput.value = '';
+    renderRxImageList();
+  }
+
+  function renderRxImageList() {
+    rxImageList.innerHTML = '';
+    var visible = rxImages.filter(function (e) { return e.type === 'pending' || !e.pendingRemove; });
+    if (!visible.length) {
+      var empty = document.createElement('p');
+      empty.className = 'loki-rx-image-empty';
+      empty.textContent = 'No photos added yet.';
+      rxImageList.appendChild(empty);
+      return;
     }
+    visible.forEach(function (entry) {
+      var row = document.createElement('div');
+      row.className = 'loki-rx-image-preview';
+
+      var thumbLink = document.createElement('a');
+      thumbLink.href = rxEntryPreviewSrc(entry) || '#';
+      thumbLink.target = '_blank';
+      thumbLink.rel = 'noopener';
+      thumbLink.className = 'loki-rx-image-thumb';
+      var img = document.createElement('img');
+      img.src = rxEntryPreviewSrc(entry);
+      img.alt = 'Prescription photo preview';
+      thumbLink.appendChild(img);
+      row.appendChild(thumbLink);
+
+      var actions = document.createElement('div');
+      actions.className = 'loki-rx-image-actions';
+
+      var viewBtn = document.createElement('button');
+      viewBtn.type = 'button';
+      viewBtn.className = 'loki-rx-image-view';
+      viewBtn.textContent = 'View';
+      viewBtn.addEventListener('click', function () {
+        var src = rxEntryPreviewSrc(entry);
+        if (src) openPhotosModal([src]);
+      });
+      actions.appendChild(viewBtn);
+
+      var removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'loki-rx-image-remove';
+      removeBtn.textContent = 'Remove';
+      removeBtn.addEventListener('click', function () {
+        if (entry.type === 'pending') {
+          // Not yet uploaded -- just drop it, no server call needed.
+          if (entry.objectUrl) URL.revokeObjectURL(entry.objectUrl);
+          var idx = rxImages.indexOf(entry);
+          if (idx !== -1) rxImages.splice(idx, 1);
+        } else {
+          // Already saved -- mark for removal; the actual delete happens
+          // together with the rest of this modal's changes when Save
+          // Prescription is clicked, same as everything else in this form.
+          entry.pendingRemove = true;
+        }
+        renderRxImageList();
+      });
+      actions.appendChild(removeBtn);
+
+      row.appendChild(actions);
+      rxImageList.appendChild(row);
+    });
   }
 
-  function rxSlotShowPendingFile(s, file) {
-    if (s.objectUrl) { URL.revokeObjectURL(s.objectUrl); s.objectUrl = null; }
-    s.pendingFile = file;
-    s.pendingRemove = false;
-    s.objectUrl = URL.createObjectURL(file);
-    s.link.href = s.objectUrl;
-    s.thumb.src = s.objectUrl;
-    s.preview.hidden = false;
-  }
-
-  rxImageSlots.forEach(function (s) {
-    s.viewBtn.addEventListener('click', function () {
-      // Reuse the existing Photos lightbox (already used for Message Us
-      // photos) instead of relying on the thumbnail's small new-tab link --
-      // same in-app viewing experience, with its loading/error handling,
-      // for whichever photo is currently showing in this slot (an already
-      // saved one, or a just-picked file not yet uploaded).
-      if (s.thumb.src) openPhotosModal([s.thumb.src]);
-    });
-    s.input.addEventListener('change', function () {
-      var file = s.input.files && s.input.files[0];
-      if (!file) return;
-      if (file.size > MAX_PRESCRIPTION_IMAGE_BYTES) {
-        prescriptionFormStatus.textContent = 'That photo is over 4 MB — please choose a smaller image.';
-        prescriptionFormStatus.className = 'form-status error';
-        s.input.value = '';
-        return;
-      }
-      prescriptionFormStatus.textContent = '';
-      prescriptionFormStatus.className = 'form-status';
-      rxSlotShowPendingFile(s, file);
-    });
-    s.removeBtn.addEventListener('click', function () {
-      if (s.pendingFile) {
-        // A just-picked, not-yet-saved photo -- discard it locally (no
-        // server call needed, nothing was uploaded yet) and fall back to
-        // whatever was already saved for this slot, if anything.
-        rxSlotShowExisting(s, s.existingUrl);
-        return;
-      }
-      // An already-saved photo -- mark it for removal; the actual delete
-      // happens together with the rest of this modal's changes when Save
-      // Prescription is clicked, same as everything else in this form.
-      s.pendingRemove = true;
-      s.preview.hidden = true;
-    });
+  rxImageAddBtn.addEventListener('click', function () { rxImageAddInput.click(); });
+  rxImageAddInput.addEventListener('change', function () {
+    var file = rxImageAddInput.files && rxImageAddInput.files[0];
+    rxImageAddInput.value = ''; // allow picking the same file again later
+    if (!file) return;
+    if (file.size > MAX_PRESCRIPTION_IMAGE_BYTES) {
+      prescriptionFormStatus.textContent = 'That photo is over 4 MB — please choose a smaller image.';
+      prescriptionFormStatus.className = 'form-status error';
+      return;
+    }
+    prescriptionFormStatus.textContent = '';
+    prescriptionFormStatus.className = 'form-status';
+    rxImages.push({ type: 'pending', file: file, objectUrl: URL.createObjectURL(file) });
+    renderRxImageList();
   });
 
   function updatePrescriptionWordCount() {
@@ -996,8 +1015,7 @@
     prescriptionModalSub.textContent = (a.name || 'Unknown') + ' (' + (a.phone || '-') + ') · ' + formatDateHeading(a.date) + ' · ' + (a.timeSlotLabel || '');
     prescriptionTextarea.value = a.prescription || '';
     updatePrescriptionWordCount();
-    rxSlotShowExisting(rxImageSlots[0], a.prescriptionImage || '');
-    rxSlotShowExisting(rxImageSlots[1], a.prescriptionImage2 || '');
+    rxImagesShowExisting(a.prescriptionImages || []);
     prescriptionFormStatus.textContent = '';
     prescriptionFormStatus.className = 'form-status';
     prescriptionModalOverlay.classList.add('is-open');
@@ -1006,7 +1024,7 @@
   function closePrescriptionModal() {
     prescriptionModalOverlay.classList.remove('is-open');
     prescriptionTargetId = null;
-    rxImageSlots.forEach(rxSlotReset);
+    rxImagesReset();
   }
   closePrescriptionModalBtn.addEventListener('click', closePrescriptionModal);
   var prescriptionModalMouseDownOnOverlay = false;
@@ -1022,43 +1040,49 @@
     prescriptionModalMouseDownOnOverlay = false;
   });
 
-  // Uploads or removes one image slot for the given booking id. Resolves
-  // to the resulting URL ('' if removed/never set) -- never rejects, so
-  // one failed photo never stops the Prescription text (or the other
-  // photo slot) from saving; the caller inspects .ok to report it.
-  function saveRxImageSlot(bookingId, s) {
-    if (!s.pendingFile && !s.pendingRemove) {
-      return Promise.resolve({ ok: true, changed: false, url: s.existingUrl });
-    }
-
-    var fd = new FormData();
-    fd.append('action', 'lokiSavePrescriptionImage');
-    fd.append('passcode', currentPasscode);
-    fd.append('id', bookingId);
-    fd.append('slot', String(s.slot));
-
-    var sendIt;
-    if (s.pendingRemove) {
-      fd.append('remove', 'true');
-      sendIt = Promise.resolve(fd);
-    } else {
-      sendIt = lokiReadFileAsBase64(s.pendingFile).then(function (base64) {
+  // Uploads one pending (just-picked, not-yet-saved) photo. Resolves,
+  // never rejects, so one failed photo never stops the Prescription text
+  // (or any other photo) from saving -- the caller inspects .ok to report
+  // it, and a failed entry is left in rxImages exactly as it was so Save
+  // can simply be clicked again to retry just that photo.
+  function saveRxImageAdd(bookingId, entry) {
+    return lokiReadFileAsBase64(entry.file)
+      .then(function (base64) {
+        var fd = new FormData();
+        fd.append('action', 'lokiAddPrescriptionImage');
+        fd.append('passcode', currentPasscode);
+        fd.append('id', bookingId);
         fd.append('imageBase64', base64);
-        fd.append('imageName', s.pendingFile.name);
-        fd.append('imageMime', s.pendingFile.type || 'image/jpeg');
-        return fd;
-      });
-    }
-
-    return sendIt
-      .then(function (fd) { return fetch(GOOGLE_SHEET_WEBAPP_URL, { method: 'POST', body: fd }); })
+        fd.append('imageName', entry.file.name);
+        fd.append('imageMime', entry.file.type || 'image/jpeg');
+        return fetch(GOOGLE_SHEET_WEBAPP_URL, { method: 'POST', body: fd });
+      })
       .then(function (res) { return res.json(); })
       .then(function (data) {
         if (data.result !== 'success') throw new Error(data.message || 'Could not save that photo.');
-        return { ok: true, changed: true, url: data.url || '' };
+        return { ok: true, kind: 'add', entry: entry, id: data.imageId, url: data.url || '' };
       })
       .catch(function (err) {
-        return { ok: false, changed: true, slot: s.slot, message: err && err.message ? err.message : 'Could not save that photo.' };
+        return { ok: false, kind: 'add', entry: entry, message: err && err.message ? err.message : 'Could not save that photo.' };
+      });
+  }
+
+  // Removes one already-saved photo by its AllImages id. Same never-rejects
+  // contract as saveRxImageAdd above.
+  function saveRxImageRemove(bookingId, entry) {
+    var fd = new FormData();
+    fd.append('action', 'lokiRemovePrescriptionImage');
+    fd.append('passcode', currentPasscode);
+    fd.append('id', bookingId);
+    fd.append('imageId', String(entry.id));
+    return fetch(GOOGLE_SHEET_WEBAPP_URL, { method: 'POST', body: fd })
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        if (data.result !== 'success') throw new Error(data.message || 'Could not remove that photo.');
+        return { ok: true, kind: 'remove', entry: entry };
+      })
+      .catch(function (err) {
+        return { ok: false, kind: 'remove', entry: entry, message: err && err.message ? err.message : 'Could not remove that photo.' };
       });
   }
 
@@ -1095,7 +1119,12 @@
         return { ok: false, message: err && err.message ? err.message : 'Could not save prescription.' };
       });
 
-    Promise.all([textSave].concat(rxImageSlots.map(function (s) { return saveRxImageSlot(targetId, s); })))
+    var pendingAdds = rxImages.filter(function (e) { return e.type === 'pending'; });
+    var pendingRemoves = rxImages.filter(function (e) { return e.type === 'existing' && e.pendingRemove; });
+    var imageOps = pendingAdds.map(function (e) { return saveRxImageAdd(targetId, e); })
+      .concat(pendingRemoves.map(function (e) { return saveRxImageRemove(targetId, e); }));
+
+    Promise.all([textSave].concat(imageOps))
       .then(function (results) {
         var textResult = results[0];
         var imageResults = results.slice(1);
@@ -1105,19 +1134,34 @@
         var a = appointmentsCache.filter(function (x) { return String(x.id) === String(targetId); })[0];
         if (textResult.ok && a) a.prescription = text;
 
-        // Only touch a slot's state when that slot actually had something
-        // to save (r.changed) -- an upload/removal that failed keeps its
-        // pending file/flag exactly as it was, so retrying Save tries that
-        // same slot again instead of silently dropping it; a slot that
-        // succeeded is reconciled to the now-committed server state right
-        // away (clears pendingFile/pendingRemove, swaps the preview over
-        // to the real Drive thumbnail).
-        imageResults.forEach(function (r, i) {
+        // A failed add/remove is left exactly as it was in rxImages (still
+        // 'pending', or still pendingRemove) so clicking Save again retries
+        // just that one photo instead of silently dropping it; a succeeded
+        // add is reconciled from a locally-previewed pending entry to a
+        // committed 'existing' one (now with its real AllImages id and
+        // Drive URL), and a succeeded remove is actually dropped from the
+        // list for the first time here (it stayed visible-as-hidden only
+        // in the sense of being filtered out of renderRxImageList up to
+        // this point, in case the removal needed to be retried).
+        imageResults.forEach(function (r) {
           if (!r.ok) { failures.push(r.message); return; }
-          if (!r.changed) return;
-          rxSlotShowExisting(rxImageSlots[i], r.url);
-          if (a) { if (i === 0) a.prescriptionImage = r.url; else a.prescriptionImage2 = r.url; }
+          if (r.kind === 'add') {
+            var addIdx = rxImages.indexOf(r.entry);
+            if (addIdx !== -1) {
+              if (r.entry.objectUrl) URL.revokeObjectURL(r.entry.objectUrl);
+              rxImages[addIdx] = { type: 'existing', id: r.id, url: r.url, pendingRemove: false };
+            }
+          } else if (r.kind === 'remove') {
+            var removeIdx = rxImages.indexOf(r.entry);
+            if (removeIdx !== -1) rxImages.splice(removeIdx, 1);
+          }
         });
+        renderRxImageList();
+        if (a) {
+          a.prescriptionImages = rxImages
+            .filter(function (e) { return e.type === 'existing'; })
+            .map(function (e) { return { id: e.id, url: e.url }; });
+        }
 
         if (failures.length) {
           prescriptionFormStatus.textContent = failures.join(' ');
@@ -1137,6 +1181,502 @@
         submitBtn.textContent = 'Save Prescription';
         prescriptionSavingOverlay.classList.remove('is-active');
       });
+  });
+
+  /* ---------- Book/Reschedule Appointment modal ---------- */
+  // Shared by both header tabs: "Book Appointment" opens it empty
+  // (lokiApptFormOriginalId stays null, submits as a fresh booking);
+  // "Reschedule" (from a Cancel/Reschedule search result) opens it
+  // pre-filled with that patient's details and sets
+  // lokiApptFormOriginalId, which switches the submit handler to the
+  // admin-only lokiReschedule action instead of a plain new booking.
+  var lokiApptFormModalOverlay = document.getElementById('lokiApptFormModalOverlay');
+  var closeLokiApptFormModalBtn = document.getElementById('closeLokiApptFormModal');
+  var lokiApptFormTitle = document.getElementById('lokiApptFormTitle');
+  var lokiApptFormSub = document.getElementById('lokiApptFormSub');
+  var lokiApptForm = document.getElementById('lokiApptForm');
+  var lokiApptFormSavingOverlay = document.getElementById('lokiApptFormSavingOverlay');
+  var lokiApptFormStatus = document.getElementById('lokiApptFormStatus');
+  var lokiApptFormSubmitBtn = document.getElementById('lokiApptFormSubmitBtn');
+  var lokiApptNameInput = document.getElementById('lokiApptName');
+  var lokiApptPhoneInput = document.getElementById('lokiApptPhone');
+  var lokiApptEmailInput = document.getElementById('lokiApptEmail');
+  var lokiApptDateInput = document.getElementById('lokiApptDate');
+  var lokiApptTimeSelect = document.getElementById('lokiApptTime');
+  var lokiApptFormOriginalId = null;
+
+  // Same 10 AM-2 PM / 3 PM-8 PM, 30-minute-slot schedule as the public
+  // site's own Book Appointment form and reschedule.html.
+  var LOKI_TIME_SLOTS = (function () {
+    var pad = function (n) { return String(n).padStart(2, '0'); };
+    var label = function (h, m) {
+      var period = h < 12 ? 'AM' : 'PM';
+      var h12 = h % 12; if (h12 === 0) h12 = 12;
+      return h12 + ':' + (m === 0 ? '00' : m) + ' ' + period;
+    };
+    var slots = [];
+    var addSlot = function (h, m) {
+      var endH = m === 30 ? h + 1 : h;
+      var endM = m === 30 ? 0 : 30;
+      slots.push({
+        start: pad(h) + ':' + pad(m),
+        end: pad(endH) + ':' + pad(endM),
+        label: label(h, m) + ' - ' + label(endH, endM)
+      });
+    };
+    for (var h1 = 10; h1 < 14; h1++) { addSlot(h1, 0); addSlot(h1, 30); }
+    for (var h2 = 15; h2 < 20; h2++) { addSlot(h2, 0); addSlot(h2, 30); }
+    return slots;
+  })();
+
+  function lokiApptPopulateTimeSlots() {
+    lokiApptTimeSelect.innerHTML = '<option value="">Select a time slot</option>' +
+      LOKI_TIME_SLOTS.map(function (s) { return '<option value="' + s.start + '">' + s.label + '</option>'; }).join('');
+  }
+
+  function lokiApptRefreshSlotAvailability() {
+    if (!lokiApptDateInput.value) return;
+    fetch(GOOGLE_SHEET_WEBAPP_URL + '?action=availability&date=' + encodeURIComponent(lokiApptDateInput.value))
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        var booked = (data && data.bookedSlots) || [];
+        var previousValue = lokiApptTimeSelect.value;
+        Array.prototype.forEach.call(lokiApptTimeSelect.options, function (opt) {
+          if (!opt.value) return;
+          var slot = LOKI_TIME_SLOTS.filter(function (s) { return s.start === opt.value; })[0];
+          var isBooked = booked.indexOf(opt.value) !== -1;
+          opt.disabled = isBooked;
+          opt.textContent = isBooked ? (slot.label + ' (Booked)') : slot.label;
+        });
+        if (previousValue && booked.indexOf(previousValue) !== -1) lokiApptTimeSelect.value = '';
+      })
+      .catch(function () {
+        // Availability check is a nicety -- the server still blocks a real
+        // conflict on submit even if this fails.
+      });
+  }
+
+  // prefill (optional): { id, name, phone, email } from a search result --
+  // present means "Reschedule this booking", absent means "Book Appointment".
+  function openLokiApptFormModal(prefill) {
+    lokiApptFormOriginalId = prefill ? prefill.id : null;
+    lokiApptFormTitle.textContent = prefill ? 'Reschedule Appointment' : 'Book an Appointment';
+    lokiApptFormSub.textContent = prefill
+      ? 'Pick a new date and time for ' + (prefill.name || 'this patient') + '. The old slot is freed up automatically.'
+      : 'Pick a date and time for the patient \u2014 we\u2019ll save it right away.';
+    lokiApptFormSubmitBtn.textContent = prefill ? 'Confirm Reschedule' : 'Confirm Appointment';
+    lokiApptFormStatus.textContent = '';
+    lokiApptFormStatus.className = 'form-status';
+    lokiApptNameInput.value = prefill ? (prefill.name || '') : '';
+    lokiApptPhoneInput.value = prefill ? (prefill.phone || '') : '';
+    lokiApptEmailInput.value = prefill ? (prefill.email || '') : '';
+    lokiApptPopulateTimeSlots();
+    var today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+    lokiApptDateInput.min = today;
+    lokiApptDateInput.value = today;
+    lokiApptRefreshSlotAvailability();
+    lokiApptFormModalOverlay.classList.add('is-open');
+    lokiApptNameInput.focus();
+  }
+  function closeLokiApptFormModal() {
+    lokiApptFormModalOverlay.classList.remove('is-open');
+    lokiApptFormOriginalId = null;
+  }
+  document.getElementById('lokiBookApptTab').addEventListener('click', function () { openLokiApptFormModal(null); });
+  closeLokiApptFormModalBtn.addEventListener('click', closeLokiApptFormModal);
+  lokiApptDateInput.addEventListener('change', lokiApptRefreshSlotAvailability);
+  var lokiApptFormMouseDownOnOverlay = false;
+  lokiApptFormModalOverlay.addEventListener('mousedown', function (e) {
+    lokiApptFormMouseDownOnOverlay = (e.target === lokiApptFormModalOverlay);
+  });
+  lokiApptFormModalOverlay.addEventListener('click', function (e) {
+    if (e.target === lokiApptFormModalOverlay && lokiApptFormMouseDownOnOverlay) closeLokiApptFormModal();
+    lokiApptFormMouseDownOnOverlay = false;
+  });
+
+  var LOKI_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  lokiApptForm.addEventListener('submit', function (e) {
+    e.preventDefault();
+
+    var slot = LOKI_TIME_SLOTS.filter(function (s) { return s.start === lokiApptTimeSelect.value; })[0];
+    if (!slot) {
+      lokiApptFormStatus.textContent = 'Please choose a booking time.';
+      lokiApptFormStatus.className = 'form-status error';
+      return;
+    }
+    var emailValue = lokiApptEmailInput.value.trim();
+    lokiApptEmailInput.classList.remove('field-invalid');
+    if (emailValue && !LOKI_EMAIL_PATTERN.test(emailValue)) {
+      lokiApptFormStatus.textContent = 'Please enter a valid email address, or leave it blank.';
+      lokiApptFormStatus.className = 'form-status error';
+      lokiApptEmailInput.classList.add('field-invalid');
+      lokiApptEmailInput.focus();
+      return;
+    }
+
+    var isReschedule = !!lokiApptFormOriginalId;
+    lokiApptFormSubmitBtn.disabled = true;
+    lokiApptFormSubmitBtn.textContent = isReschedule ? 'Rescheduling\u2026' : 'Booking\u2026';
+    lokiApptFormStatus.textContent = '';
+    lokiApptFormStatus.className = 'form-status';
+    lokiApptFormSavingOverlay.classList.add('is-active');
+
+    var fd = new FormData();
+    if (isReschedule) {
+      fd.append('action', 'lokiReschedule');
+      fd.append('passcode', currentPasscode);
+      fd.append('originalId', lokiApptFormOriginalId);
+    } else {
+      fd.append('formType', 'appointment');
+    }
+    fd.append('name', lokiApptNameInput.value);
+    fd.append('phone', lokiApptPhoneInput.value);
+    fd.append('email', emailValue);
+    fd.append('date', lokiApptDateInput.value);
+    fd.append('timeSlotStart', slot.start);
+    fd.append('timeSlotEnd', slot.end);
+    fd.append('timeSlotLabel', slot.label);
+
+    fetch(GOOGLE_SHEET_WEBAPP_URL, { method: 'POST', body: fd })
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        if (data.result === 'success') {
+          lokiApptFormSubmitBtn.textContent = isReschedule ? 'Rescheduled \u2713' : 'Appointment Booked \u2713';
+          lokiApptFormStatus.textContent = (isReschedule ? 'Rescheduled to ' : 'Booked for ') + lokiApptDateInput.value + ', ' + slot.label + '.';
+          lokiApptFormStatus.className = 'form-status success';
+          showSavedToast();
+          // The sheet now has a new row (and, for a reschedule, an updated
+          // old row too) -- simplest way to guarantee every other view of
+          // this data (the main appointment list, a re-opened search) sees
+          // it is to drop the cache so the next load re-fetches for real.
+          appointmentsCache = null;
+          setTimeout(closeLokiApptFormModal, 1200);
+        } else if (data.result === 'conflict') {
+          lokiApptFormSubmitBtn.disabled = false;
+          lokiApptFormSubmitBtn.textContent = isReschedule ? 'Confirm Reschedule' : 'Confirm Appointment';
+          lokiApptFormStatus.textContent = data.message || 'That time slot is already booked \u2014 please choose another.';
+          lokiApptFormStatus.className = 'form-status error';
+          lokiApptRefreshSlotAvailability();
+        } else {
+          throw new Error((data && data.message) || 'Unknown error');
+        }
+      })
+      .catch(function (err) {
+        lokiApptFormSubmitBtn.disabled = false;
+        lokiApptFormSubmitBtn.textContent = isReschedule ? 'Confirm Reschedule' : 'Confirm Appointment';
+        lokiApptFormStatus.textContent = 'Something went wrong. ' + (err && err.message ? err.message : 'Please try again.');
+        lokiApptFormStatus.className = 'form-status error';
+      })
+      .finally(function () {
+        lokiApptFormSavingOverlay.classList.remove('is-active');
+      });
+  });
+
+  /* ---------- Cancel/Reschedule Appointment search modal ---------- */
+  var lokiCancelReschedModalOverlay = document.getElementById('lokiCancelReschedModalOverlay');
+  var closeLokiCancelReschedModalBtn = document.getElementById('closeLokiCancelReschedModal');
+  var lokiSearchNameInput = document.getElementById('lokiSearchName');
+  var lokiSearchDateInput = document.getElementById('lokiSearchDate');
+  var lokiSearchRegexToggle = document.getElementById('lokiSearchRegexToggle');
+  var lokiSearchClearBtn = document.getElementById('lokiSearchClearBtn');
+  var lokiSearchResults = document.getElementById('lokiSearchResults');
+
+  // Same "blank/Past only" rule as the main Cancel Dates section -- an
+  // already Cancelled/ReScheduled/Finished booking isn't offered Cancel
+  // again here either.
+  function lokiSearchCancelCandidateStatus(status) { return cancelCandidateStatus(status); }
+  // Reschedule is offered more broadly (matches handleLokiReschedule_'s own
+  // server-side check): anything except Finished or already-ReScheduled.
+  function lokiSearchRescheduleCandidateStatus(status) {
+    return status !== 'Finished' && status !== 'ReScheduled';
+  }
+
+  function buildSearchResultRow(a) {
+    var row = document.createElement('div');
+    row.className = 'loki-search-result' + apptRowStatusClass(a.status || '');
+
+    var top = document.createElement('div');
+    top.className = 'loki-search-result-top';
+
+    var info = document.createElement('div');
+    info.className = 'loki-search-result-info';
+    var infoHtml = '<strong>' + escapeHtml(a.name || 'Unknown') + '</strong>' +
+      '<span>' + escapeHtml(a.phone || '-') + '</span>' +
+      '<span>' + escapeHtml(formatDateHeading(a.date)) + ' \u00b7 ' + escapeHtml(a.timeSlotLabel || '') + '</span>';
+    if (a.rescheduledId) infoHtml += '<span>&rarr; Rescheduled as appointment #' + escapeHtml(String(a.rescheduledId)) + '</span>';
+    info.innerHTML = infoHtml;
+    top.appendChild(info);
+
+    var statusBadge = document.createElement('span');
+    statusBadge.className = 'loki-search-result-status';
+    statusBadge.textContent = APPT_STATUS_LABELS[a.status || ''] || (a.status || 'Upcoming');
+    top.appendChild(statusBadge);
+
+    row.appendChild(top);
+
+    // Change Status row -- same options/labels and the same
+    // lokiSaveApptStatus backend action as the main Appointments section's
+    // status dropdown, just scoped to this one row with its own Save
+    // button instead of the big list's shared save bar (this modal's other
+    // actions, Cancel/Reschedule, already save a single row immediately on
+    // click, so a per-row Save here matches how the rest of the modal
+    // behaves).
+    var statusRow = document.createElement('div');
+    statusRow.className = 'loki-search-status-row';
+
+    var statusSelectWrap = document.createElement('div');
+    statusSelectWrap.className = 'loki-search-status-field';
+    var statusSelectLabel = document.createElement('label');
+    statusSelectLabel.textContent = 'Status';
+    statusSelectWrap.appendChild(statusSelectLabel);
+    var searchStatusSelect = document.createElement('select');
+    searchStatusSelect.className = 'loki-search-status-select';
+    APPT_STATUS_VALUES.forEach(function (value) {
+      var opt = document.createElement('option');
+      opt.value = value;
+      opt.textContent = APPT_STATUS_LABELS[value];
+      searchStatusSelect.appendChild(opt);
+    });
+    searchStatusSelect.value = a.status || '';
+    statusSelectWrap.appendChild(searchStatusSelect);
+    statusRow.appendChild(statusSelectWrap);
+
+    var reasonSelectWrap = document.createElement('div');
+    reasonSelectWrap.className = 'loki-search-status-field';
+    var reasonSelectLabel = document.createElement('label');
+    reasonSelectLabel.textContent = 'Cancelled Reason';
+    reasonSelectWrap.appendChild(reasonSelectLabel);
+    var searchReasonSelect = buildReasonSelect(a.cancelledReason || '');
+    reasonSelectWrap.appendChild(searchReasonSelect);
+    statusRow.appendChild(reasonSelectWrap);
+
+    var searchStatusSaveBtn = document.createElement('button');
+    searchStatusSaveBtn.type = 'button';
+    searchStatusSaveBtn.className = 'loki-search-status-save-btn';
+    searchStatusSaveBtn.textContent = 'Save Status';
+    searchStatusSaveBtn.disabled = true;
+    statusRow.appendChild(searchStatusSaveBtn);
+
+    var searchStatusMsg = document.createElement('span');
+    searchStatusMsg.className = 'form-status';
+    searchStatusMsg.style.width = '100%';
+    statusRow.appendChild(searchStatusMsg);
+
+    function refreshSearchStatusDirty() {
+      var dirty = searchStatusSelect.value !== (a.status || '') || searchReasonSelect.value !== (a.cancelledReason || '');
+      searchStatusSaveBtn.disabled = !dirty;
+    }
+    searchStatusSelect.addEventListener('change', refreshSearchStatusDirty);
+    searchReasonSelect.addEventListener('change', refreshSearchStatusDirty);
+
+    searchStatusSaveBtn.addEventListener('click', function () {
+      searchStatusSaveBtn.disabled = true;
+      searchStatusSaveBtn.textContent = 'Saving…';
+      searchStatusMsg.textContent = '';
+      searchStatusMsg.className = 'form-status';
+      var fd = new FormData();
+      fd.append('action', 'lokiSaveApptStatus');
+      fd.append('passcode', currentPasscode);
+      fd.append('changes', JSON.stringify([{ id: a.id, status: searchStatusSelect.value, cancelledReason: searchReasonSelect.value }]));
+      fetch(GOOGLE_SHEET_WEBAPP_URL, { method: 'POST', body: fd })
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+          if (data.result !== 'success') throw new Error(data.message || 'Could not save status.');
+          a.status = searchStatusSelect.value;
+          a.cancelledReason = searchReasonSelect.value;
+          showSavedToast();
+          renderAppointments();
+          renderSearchResults();
+        })
+        .catch(function (err) {
+          searchStatusSaveBtn.textContent = 'Save Status';
+          refreshSearchStatusDirty();
+          searchStatusMsg.textContent = err && err.message ? err.message : 'Could not save status.';
+          searchStatusMsg.className = 'form-status error';
+        });
+    });
+
+    row.appendChild(statusRow);
+
+    var actions = document.createElement('div');
+    actions.className = 'loki-search-result-actions';
+
+    var cancelPanel = document.createElement('div');
+    cancelPanel.className = 'loki-search-cancel-panel';
+    cancelPanel.hidden = true;
+    var cancelReasonSelect = buildReasonSelect('');
+    cancelPanel.appendChild(cancelReasonSelect);
+    var cancelConfirmBtn = document.createElement('button');
+    cancelConfirmBtn.type = 'button';
+    cancelConfirmBtn.className = 'loki-search-cancel-confirm-btn';
+    cancelConfirmBtn.textContent = 'Confirm Cancel';
+    cancelPanel.appendChild(cancelConfirmBtn);
+    var cancelBackBtn = document.createElement('button');
+    cancelBackBtn.type = 'button';
+    cancelBackBtn.className = 'loki-search-cancel-back-btn';
+    cancelBackBtn.textContent = 'Never mind';
+    cancelBackBtn.addEventListener('click', function () { cancelPanel.hidden = true; });
+    cancelPanel.appendChild(cancelBackBtn);
+    var cancelPanelStatus = document.createElement('span');
+    cancelPanelStatus.className = 'form-status error';
+    cancelPanelStatus.style.width = '100%';
+    cancelPanel.appendChild(cancelPanelStatus);
+
+    if (lokiSearchCancelCandidateStatus(a.status || '')) {
+      var cancelBtn = document.createElement('button');
+      cancelBtn.type = 'button';
+      cancelBtn.className = 'loki-search-cancel-btn';
+      cancelBtn.textContent = 'Cancel';
+      cancelBtn.addEventListener('click', function () { cancelPanel.hidden = !cancelPanel.hidden; });
+      actions.appendChild(cancelBtn);
+    }
+    if (lokiSearchRescheduleCandidateStatus(a.status || '')) {
+      var reschedBtn = document.createElement('button');
+      reschedBtn.type = 'button';
+      reschedBtn.className = 'loki-search-reschedule-btn';
+      reschedBtn.textContent = 'Reschedule';
+      reschedBtn.addEventListener('click', function () {
+        closeLokiCancelReschedModal();
+        openLokiApptFormModal({ id: a.id, name: a.name, phone: a.phone, email: a.email });
+      });
+      actions.appendChild(reschedBtn);
+    }
+
+    row.appendChild(actions);
+    row.appendChild(cancelPanel);
+
+    cancelConfirmBtn.addEventListener('click', function () {
+      cancelConfirmBtn.disabled = true;
+      cancelConfirmBtn.textContent = 'Cancelling\u2026';
+      var fd = new FormData();
+      fd.append('action', 'lokiSaveApptStatus');
+      fd.append('passcode', currentPasscode);
+      fd.append('changes', JSON.stringify([{ id: a.id, status: 'Cancelled', cancelledReason: cancelReasonSelect.value }]));
+      fetch(GOOGLE_SHEET_WEBAPP_URL, { method: 'POST', body: fd })
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+          if (data.result !== 'success') throw new Error(data.message || 'Could not cancel.');
+          a.status = 'Cancelled';
+          a.cancelledReason = cancelReasonSelect.value;
+          showSavedToast();
+          renderAppointments();
+          renderSearchResults();
+        })
+        .catch(function (err) {
+          cancelConfirmBtn.disabled = false;
+          cancelConfirmBtn.textContent = 'Confirm Cancel';
+          cancelPanelStatus.textContent = err && err.message ? err.message : 'Could not cancel that appointment.';
+        });
+    });
+
+    return row;
+  }
+
+  function renderSearchResults() {
+    var nameQueryRaw = lokiSearchNameInput.value.trim();
+    var nameQuery = nameQueryRaw.toLowerCase();
+    var dateQuery = lokiSearchDateInput.value;
+    var useRegex = !!(lokiSearchRegexToggle && lokiSearchRegexToggle.checked);
+    lokiSearchResults.innerHTML = '';
+
+    if (!nameQueryRaw && !dateQuery) {
+      var prompt = document.createElement('p');
+      prompt.className = 'loki-empty';
+      prompt.textContent = 'Type a name or pick a date to search.';
+      lokiSearchResults.appendChild(prompt);
+      return;
+    }
+
+    // "Use regular expression" lets Dr Lokesh/Management search by a
+    // pattern (e.g. "^sh" or "sharma|verma") instead of a plain substring.
+    // An invalid pattern (unbalanced brackets, etc.) must not crash the
+    // whole modal -- it's reported in place of results instead.
+    var nameRegex = null;
+    if (useRegex && nameQueryRaw) {
+      try {
+        nameRegex = new RegExp(nameQueryRaw, 'i');
+      } catch (regexErr) {
+        var regexErrP = document.createElement('p');
+        regexErrP.className = 'form-status error';
+        regexErrP.textContent = 'Invalid regular expression: ' + (regexErr && regexErr.message ? regexErr.message : regexErr);
+        lokiSearchResults.appendChild(regexErrP);
+        return;
+      }
+    }
+
+    var matches = (appointmentsCache || []).filter(function (a) {
+      if (nameQueryRaw) {
+        var nm = a.name || '';
+        if (nameRegex) {
+          if (!nameRegex.test(nm)) return false;
+        } else if (nm.toLowerCase().indexOf(nameQuery) === -1) {
+          return false;
+        }
+      }
+      if (dateQuery && a.date !== dateQuery) return false;
+      return true;
+    }).sort(function (x, y) {
+      if (x.date !== y.date) return x.date < y.date ? -1 : 1;
+      return (x.startTime || '').localeCompare(y.startTime || '');
+    });
+
+    if (!matches.length) {
+      var empty = document.createElement('p');
+      empty.className = 'loki-empty';
+      empty.textContent = 'No matching appointments found.';
+      lokiSearchResults.appendChild(empty);
+      return;
+    }
+
+    matches.forEach(function (a) { lokiSearchResults.appendChild(buildSearchResultRow(a)); });
+  }
+
+  function openLokiCancelReschedModal() {
+    lokiSearchNameInput.value = '';
+    lokiSearchDateInput.value = '';
+    if (lokiSearchRegexToggle) lokiSearchRegexToggle.checked = false;
+    lokiCancelReschedModalOverlay.classList.add('is-open');
+    // Plain loading message, not setLoadingStatus() -- that helper
+    // overwrites el.className (it's built for a one-line <p class="form-status">
+    // status area), which would clobber lokiSearchResults' own
+    // .loki-search-results layout class.
+    lokiSearchResults.innerHTML = '';
+    var loadingP = document.createElement('p');
+    loadingP.className = 'loki-empty';
+    loadingP.textContent = 'Loading appointments\u2026';
+    lokiSearchResults.appendChild(loadingP);
+    ensureAppointmentsLoaded(function () {
+      renderSearchResults();
+    }, function (err) {
+      lokiSearchResults.innerHTML = '';
+      var errP = document.createElement('p');
+      errP.className = 'form-status error';
+      errP.textContent = 'Could not load appointments. ' + (err && err.message ? err.message : '');
+      lokiSearchResults.appendChild(errP);
+    });
+  }
+  function closeLokiCancelReschedModal() {
+    lokiCancelReschedModalOverlay.classList.remove('is-open');
+  }
+  document.getElementById('lokiCancelReschedTab').addEventListener('click', openLokiCancelReschedModal);
+  closeLokiCancelReschedModalBtn.addEventListener('click', closeLokiCancelReschedModal);
+  lokiSearchNameInput.addEventListener('input', renderSearchResults);
+  lokiSearchDateInput.addEventListener('change', renderSearchResults);
+  if (lokiSearchRegexToggle) lokiSearchRegexToggle.addEventListener('change', renderSearchResults);
+  lokiSearchClearBtn.addEventListener('click', function () {
+    lokiSearchNameInput.value = '';
+    lokiSearchDateInput.value = '';
+    if (lokiSearchRegexToggle) lokiSearchRegexToggle.checked = false;
+    renderSearchResults();
+  });
+  var lokiCancelReschedMouseDownOnOverlay = false;
+  lokiCancelReschedModalOverlay.addEventListener('mousedown', function (e) {
+    lokiCancelReschedMouseDownOnOverlay = (e.target === lokiCancelReschedModalOverlay);
+  });
+  lokiCancelReschedModalOverlay.addEventListener('click', function (e) {
+    if (e.target === lokiCancelReschedModalOverlay && lokiCancelReschedMouseDownOnOverlay) closeLokiCancelReschedModal();
+    lokiCancelReschedMouseDownOnOverlay = false;
   });
 
   /* ---------- Cancel Dates section ---------- */

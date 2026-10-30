@@ -39,6 +39,10 @@
         <span class="logo">Pee<span>rOna</span></span>
         <span class="brand-tagline">Dr. Lokesh &mdash; Appointments &amp; Messages</span>
       </div>
+      <div class="loki-header-tabs">
+        <button type="button" class="loki-header-tab" id="lokiBookApptTab"><i data-icon="calendar"></i> Book Appointment</button>
+        <button type="button" class="loki-header-tab" id="lokiCancelReschedTab"><i data-icon="search"></i> Cancel/Reschedule Appointment</button>
+      </div>
       <button type="button" class="btn btn-outline loki-lock-btn" id="lokiLockBtn"><i data-icon="x"></i> <span id="lokiLockLabel">Logout</span></button>
     </div>
   </header>
@@ -197,38 +201,78 @@
       <textarea id="prescriptionTextarea" rows="10" placeholder="Type the prescription / notes here (up to about 1000 words)..."></textarea>
       <span class="form-hint" id="prescriptionWordCount">0 / 1000 words</span>
 
-      <div class="loki-rx-image-grid">
-        <div class="loki-rx-image-field">
-          <label for="prescriptionImage1">Prescription photo <span class="form-optional">(optional)</span></label>
-          <input type="file" id="prescriptionImage1" accept="image/*">
-          <div class="loki-rx-image-preview" id="prescriptionImage1Preview" hidden>
-            <a href="#" target="_blank" rel="noopener" class="loki-rx-image-thumb" id="prescriptionImage1Link">
-              <img id="prescriptionImage1Thumb" alt="Prescription photo 1 preview">
-            </a>
-            <div class="loki-rx-image-actions">
-              <button type="button" class="loki-rx-image-view" id="prescriptionImage1View">View</button>
-              <button type="button" class="loki-rx-image-remove" id="prescriptionImage1Remove">Remove</button>
-            </div>
-          </div>
-        </div>
-        <div class="loki-rx-image-field">
-          <label for="prescriptionImage2">Prescription photo 2 <span class="form-optional">(optional)</span></label>
-          <input type="file" id="prescriptionImage2" accept="image/*">
-          <div class="loki-rx-image-preview" id="prescriptionImage2Preview" hidden>
-            <a href="#" target="_blank" rel="noopener" class="loki-rx-image-thumb" id="prescriptionImage2Link">
-              <img id="prescriptionImage2Thumb" alt="Prescription photo 2 preview">
-            </a>
-            <div class="loki-rx-image-actions">
-              <button type="button" class="loki-rx-image-view" id="prescriptionImage2View">View</button>
-              <button type="button" class="loki-rx-image-remove" id="prescriptionImage2Remove">Remove</button>
-            </div>
-          </div>
-        </div>
+      <div class="loki-rx-image-section">
+        <label>Prescription photos <span class="form-optional">(optional, any number)</span></label>
+        <div class="loki-rx-image-list" id="prescriptionImageList"></div>
+        <input type="file" id="prescriptionImageAddInput" accept="image/*" hidden>
+        <button type="button" class="btn btn-outline loki-rx-image-add-btn" id="prescriptionImageAddBtn">+ Add Photo</button>
       </div>
 
       <button type="submit" class="btn btn-primary btn-block btn-lg">Save Prescription</button>
       <p class="form-status" id="prescriptionFormStatus" aria-live="polite"></p>
     </form>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Book/Reschedule Appointment modal ===== -->
+<div class="modal-overlay" id="lokiApptFormModalOverlay">
+  <div class="modal-box">
+    <button type="button" class="modal-close" id="closeLokiApptFormModal" aria-label="Close"><i data-icon="x"></i></button>
+    <h3 id="lokiApptFormTitle">Book an Appointment</h3>
+    <p class="modal-sub" id="lokiApptFormSub">Pick a date and time for the patient &mdash; we&rsquo;ll save it right away.</p>
+    <div class="modal-scroll-content">
+    <form id="lokiApptForm" class="message-form">
+      <div class="form-saving-overlay" id="lokiApptFormSavingOverlay"><span class="loki-spinner"></span></div>
+      <label for="lokiApptName">Name</label>
+      <input type="text" id="lokiApptName" name="name" placeholder="Patient's name" required>
+
+      <label for="lokiApptPhone">Phone Number</label>
+      <input type="tel" id="lokiApptPhone" name="phone" placeholder="Patient's phone number" required pattern="[0-9+\s\(\)\-]{7,}">
+
+      <label for="lokiApptEmail">Email Id <span class="form-optional">(optional)</span></label>
+      <input type="email" id="lokiApptEmail" name="email" placeholder="patient.email@example.com">
+
+      <label for="lokiApptDate">Date</label>
+      <input type="date" id="lokiApptDate" name="date" required>
+
+      <label for="lokiApptTime">Booking Time</label>
+      <select id="lokiApptTime" name="timeSlot" required>
+        <option value="">Select a time slot</option>
+      </select>
+      <span class="form-hint">10 AM&ndash;2 PM &amp; 3 PM&ndash;8 PM, 30-minute slots (2&ndash;3 PM is lunch break). Already-booked slots are grayed out.</span>
+
+      <button type="submit" class="btn btn-primary btn-block btn-lg" id="lokiApptFormSubmitBtn">Confirm Appointment</button>
+      <p class="form-status" id="lokiApptFormStatus" aria-live="polite"></p>
+    </form>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Cancel/Reschedule Appointment search modal ===== -->
+<div class="modal-overlay" id="lokiCancelReschedModalOverlay">
+  <div class="modal-box loki-search-box">
+    <button type="button" class="modal-close" id="closeLokiCancelReschedModal" aria-label="Close"><i data-icon="x"></i></button>
+    <h3>Cancel / Reschedule an Appointment</h3>
+    <p class="modal-sub">Search by patient name or by date to find a booking.</p>
+    <div class="modal-scroll-content">
+      <div class="loki-search-fields">
+        <div class="loki-search-field">
+          <label for="lokiSearchName">Patient Name</label>
+          <input type="text" id="lokiSearchName" placeholder="Search by name">
+          <label class="loki-search-regex-toggle" for="lokiSearchRegexToggle">
+            <input type="checkbox" id="lokiSearchRegexToggle"> Use regular expression
+          </label>
+        </div>
+        <div class="loki-search-field">
+          <label for="lokiSearchDate">Date</label>
+          <input type="date" id="lokiSearchDate">
+        </div>
+        <button type="button" class="btn btn-outline loki-search-clear-btn" id="lokiSearchClearBtn">Clear</button>
+      </div>
+      <div class="loki-search-results" id="lokiSearchResults">
+        <p class="loki-empty">Type a name or pick a date to search.</p>
+      </div>
     </div>
   </div>
 </div>

@@ -857,6 +857,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   const MAX_IMAGE_BYTES = 4 * 1024 * 1024; // 4 MB
+  const MAX_MESSAGE_PHOTOS = 20; // matches Code.gs's MAX_PHOTOS_PER_MESSAGE safety cap
 
   const readFileAsBase64 = (file) => new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -869,6 +870,76 @@ document.addEventListener('DOMContentLoaded', () => {
     reader.readAsDataURL(file);
   });
 
+  /* ---------- Message Us "Add Photo" picker (any number of photos) ---------- */
+  const msgPhotoList = document.getElementById('msgPhotoList');
+  const msgPhotoAddInput = document.getElementById('msgPhotoAddInput');
+  const msgPhotoAddBtn = document.getElementById('msgPhotoAddBtn');
+  let msgPhotos = []; // { file, objectUrl }
+
+  const renderMsgPhotoList = () => {
+    if (!msgPhotoList) return;
+    msgPhotoList.innerHTML = '';
+    msgPhotos.forEach((entry, i) => {
+      const chip = document.createElement('div');
+      chip.className = 'msg-photo-chip';
+
+      const thumb = document.createElement('a');
+      thumb.href = entry.objectUrl;
+      thumb.target = '_blank';
+      thumb.rel = 'noopener';
+      thumb.className = 'msg-photo-thumb';
+      const img = document.createElement('img');
+      img.src = entry.objectUrl;
+      img.alt = 'Photo ' + (i + 1) + ' preview';
+      thumb.appendChild(img);
+      chip.appendChild(thumb);
+
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'msg-photo-remove';
+      removeBtn.setAttribute('aria-label', 'Remove this photo');
+      removeBtn.textContent = '×';
+      removeBtn.addEventListener('click', () => {
+        URL.revokeObjectURL(entry.objectUrl);
+        msgPhotos.splice(msgPhotos.indexOf(entry), 1);
+        renderMsgPhotoList();
+      });
+      chip.appendChild(removeBtn);
+
+      msgPhotoList.appendChild(chip);
+    });
+  };
+
+  const resetMsgPhotos = () => {
+    msgPhotos.forEach((entry) => URL.revokeObjectURL(entry.objectUrl));
+    msgPhotos = [];
+    if (msgPhotoAddInput) msgPhotoAddInput.value = '';
+    renderMsgPhotoList();
+  };
+
+  if (msgPhotoAddBtn && msgPhotoAddInput) {
+    msgPhotoAddBtn.addEventListener('click', () => msgPhotoAddInput.click());
+    msgPhotoAddInput.addEventListener('change', () => {
+      const file = msgPhotoAddInput.files && msgPhotoAddInput.files[0];
+      msgPhotoAddInput.value = ''; // allow picking the same file again later
+      if (!file) return;
+      if (msgPhotos.length >= MAX_MESSAGE_PHOTOS) {
+        messageFormStatus.textContent = `You can attach up to ${MAX_MESSAGE_PHOTOS} photos.`;
+        messageFormStatus.className = 'form-status error';
+        return;
+      }
+      if (file.size > MAX_IMAGE_BYTES) {
+        messageFormStatus.textContent = 'That photo is over 4 MB — please choose a smaller image.';
+        messageFormStatus.className = 'form-status error';
+        return;
+      }
+      messageFormStatus.textContent = '';
+      messageFormStatus.className = 'form-status';
+      msgPhotos.push({ file, objectUrl: URL.createObjectURL(file) });
+      renderMsgPhotoList();
+    });
+  }
+
   if (messageUsForm) {
     messageUsForm.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -879,28 +950,13 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
-      // Up to 4 optional photos: msgImage/msgImage2/msgImage3/msgImage4,
-      // sent as image(Base64|Name|Mime), image2(...), image3(...), image4(...).
-      const IMAGE_FIELD_SUFFIXES = ['', '2', '3', '4'];
-      const imageFiles = IMAGE_FIELD_SUFFIXES.map((suffix) => {
-        const input = document.getElementById(`msgImage${suffix}`);
-        return input && input.files && input.files[0];
-      });
-
-      for (let i = 0; i < imageFiles.length; i++) {
-        const file = imageFiles[i];
-        if (file && file.size > MAX_IMAGE_BYTES) {
-          const label = i === 0 ? 'That photo' : `That photo ${i + 1}`;
-          messageFormStatus.textContent = `${label} is over 4 MB — please choose a smaller image.`;
-          messageFormStatus.className = 'form-status error';
-          return;
-        }
-      }
-
+      // Any number of photos (the old fixed msgImage/msgImage2/msgImage3/
+      // msgImage4 inputs are gone), sent as photo0(Base64|Name|Mime),
+      // photo1(...), ... matching Code.gs's collectImagesUnlimited_.
       const submitBtn = messageUsForm.querySelector('button[type="submit"]');
       const originalLabel = submitBtn.textContent;
       submitBtn.disabled = true;
-      submitBtn.textContent = imageFiles.some(Boolean) ? 'Uploading photo…' : 'Sending…';
+      submitBtn.textContent = msgPhotos.length ? 'Uploading photo…' : 'Sending…';
       messageFormStatus.textContent = '';
       messageFormStatus.className = 'form-status';
       setFormSaving(messageUsForm, true);
@@ -911,14 +967,12 @@ document.addEventListener('DOMContentLoaded', () => {
       formData.append('message', messageUsForm.querySelector('#msgMessage').value);
 
       try {
-        for (let i = 0; i < imageFiles.length; i++) {
-          const file = imageFiles[i];
-          if (!file) continue;
-          const suffix = IMAGE_FIELD_SUFFIXES[i];
+        for (let i = 0; i < msgPhotos.length; i++) {
+          const file = msgPhotos[i].file;
           const base64 = await readFileAsBase64(file);
-          formData.append(`image${suffix}Base64`, base64);
-          formData.append(`image${suffix}Name`, file.name);
-          formData.append(`image${suffix}Mime`, file.type || 'image/jpeg');
+          formData.append(`photo${i}Base64`, base64);
+          formData.append(`photo${i}Name`, file.name);
+          formData.append(`photo${i}Mime`, file.type || 'image/jpeg');
         }
       } catch (err) {
         submitBtn.disabled = false;
@@ -946,6 +1000,7 @@ document.addEventListener('DOMContentLoaded', () => {
           messageFormStatus.className = 'form-status success';
           showSavedToast();
           messageUsForm.reset();
+          resetMsgPhotos();
         })
         .catch(() => {
           submitBtn.textContent = originalLabel;

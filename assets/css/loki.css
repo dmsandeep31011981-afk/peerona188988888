@@ -49,6 +49,17 @@ html, body { overflow-x: visible; }
 .loki-lock-btn { display: inline-flex; align-items: center; gap: 6px; padding: 10px 18px; font-size: 0.85rem; }
 .loki-lock-btn i { width: 15px; height: 15px; }
 
+/* The two new header tabs sit between the brand and the Logout button,
+   using the same pill-button look as the rest of this admin page. */
+.loki-header-tabs { display: flex; gap: 10px; flex-wrap: wrap; }
+.loki-header-tab {
+  display: inline-flex; align-items: center; gap: 6px; padding: 9px 16px; font-size: 0.82rem; font-weight: 600;
+  border-radius: 50px; border: 1.5px solid #e9ddd6; background: var(--white); color: var(--text-dark);
+  cursor: pointer; transition: var(--transition); white-space: nowrap;
+}
+.loki-header-tab:hover { background: var(--cream); border-color: var(--blush-dark); }
+.loki-header-tab i { width: 15px; height: 15px; flex-shrink: 0; }
+
 /* ---------- Layout ---------- */
 .loki-main { padding: 36px 0 80px; display: flex; flex-direction: column; gap: 24px; }
 .loki-section { background: var(--white); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); overflow: hidden; }
@@ -281,28 +292,16 @@ html, body { overflow-x: visible; }
 #prescriptionTextarea { resize: vertical; min-height: 220px; }
 #prescriptionWordCount.over-limit { color: #d6453d; font-weight: 600; }
 
-/* Two optional "photo of the paper prescription" fields, shown side by
-   side on desktop and stacked on mobile (see the @media block below). */
-.loki-rx-image-grid {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
-  /* .message-form already puts -14px/-10px top margins on <label> to pull
-     it snug against the field above it; a grid child isn't "above" its
-     own label the way a plain flex-column sibling is, so that negative
-     margin would just eat into the grid gap above it instead. Cancel it
-     here only, and let the grid's own `gap` do the spacing instead. */
-  margin-top: 14px;
-}
-.loki-rx-image-grid .loki-rx-image-field label { margin-bottom: 8px; }
-.loki-rx-image-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+/* Any number of "photo of the paper prescription" entries, stacked in a
+   list (replaces the old fixed 2-up grid). */
+.loki-rx-image-section { margin-top: 14px; display: flex; flex-direction: column; gap: 10px; }
+.loki-rx-image-list { display: flex; flex-direction: column; gap: 10px; }
+.loki-rx-image-empty { font-size: 0.86rem; color: var(--text-light); margin: 0; }
+.loki-rx-image-add-btn { align-self: flex-start; padding: 9px 18px; font-size: 0.84rem; }
 .loki-rx-image-preview {
   display: flex; align-items: center; gap: 10px; padding: 8px 10px;
   background: var(--cream); border-radius: var(--radius-sm);
 }
-/* Same UA-vs-author CSS override issue as .loki-save-bar elsewhere in this
-   file: an element's own `display: flex` class rule beats the browser's
-   built-in `[hidden] { display: none }` rule, so the `hidden` attribute
-   alone doesn't actually hide it. Needs this explicit override. */
-.loki-rx-image-preview[hidden] { display: none; }
 .loki-rx-image-thumb {
   flex-shrink: 0; width: 52px; height: 52px; border-radius: 8px; overflow: hidden;
   display: block; border: 1.5px solid #e9ddd6;
@@ -328,9 +327,114 @@ html, body { overflow-x: visible; }
    it's opened from, instead of rendering invisibly behind it. */
 #photosModalOverlay { z-index: 1050; }
 
+/* ---------- Cancel/Reschedule Appointment search modal ---------- */
+/* .modal-box (style.css) caps every modal at max-width: 460px -- that
+   cap was never overridden here, so this box was silently stuck at 460px
+   regardless of the width below, which is why Patient Name/Date/Clear (and
+   the Status/Cancelled Reason/Save row) kept wrapping onto their own lines
+   even on a wide desktop window. Overriding max-width to match fixes it. */
+.loki-search-box { width: min(760px, calc(100vw - 40px)); max-width: min(760px, calc(100vw - 40px)); }
+.loki-search-fields {
+  /* align-items was flex-end, which lined Date/Clear up with the BOTTOM of
+     whichever column was tallest. That was fine while every column was
+     just a label + input, but the "Use regular expression" checkbox makes
+     the Patient Name column taller than Date, so flex-end pushed Date's
+     input down into a staircase instead of a level row. flex-start keeps
+     every label level regardless of what sits below it; Clear gets its own
+     top offset below to land next to the inputs instead of the labels. */
+  display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-top: 14px; margin-bottom: 18px;
+}
+.loki-search-field { display: flex; flex-direction: column; gap: 6px; flex: 1 1 180px; min-width: 0; }
+.loki-search-field label { font-size: 0.8rem; font-weight: 600; color: var(--text-dark); }
+.loki-search-field input {
+  width: 100%; min-width: 0; box-sizing: border-box;
+  padding: 10px 14px; border: 1.5px solid #e9ddd6; border-radius: var(--radius-sm);
+  font-family: inherit; font-size: 0.9rem; color: var(--text-dark); background: var(--white);
+}
+.loki-search-field input:focus { outline: none; border-color: var(--blush-dark); }
+.loki-search-regex-toggle {
+  display: flex; align-items: center; gap: 6px; margin-top: 2px; font-size: 0.78rem;
+  font-weight: 500; color: var(--text-light); cursor: pointer; user-select: none;
+}
+.loki-search-regex-toggle input { width: auto; flex-shrink: 0; cursor: pointer; }
+.loki-search-clear-btn { flex-shrink: 0; margin-top: 26px; padding: 10px 18px; font-size: 0.82rem; }
+
+.loki-search-results { display: flex; flex-direction: column; gap: 12px; }
+.loki-search-result {
+  border: 1.5px solid #e9ddd6; border-radius: var(--radius-sm); padding: 14px 16px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.loki-search-result-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; min-width: 0; }
+.loki-search-result-info { display: flex; flex-direction: column; gap: 3px; font-size: 0.88rem; min-width: 0; }
+.loki-search-result-info strong { font-size: 0.98rem; color: var(--text-dark); overflow-wrap: anywhere; }
+.loki-search-result-info span { color: var(--text-light); overflow-wrap: anywhere; }
+.loki-search-result-status {
+  flex-shrink: 0; padding: 4px 12px; border-radius: 50px; font-size: 0.72rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.03em; background: var(--cream); color: var(--text-light); white-space: nowrap;
+}
+.loki-search-result.is-cancelled .loki-search-result-status { background: #fbe4e1; color: #c0392b; }
+.loki-search-result.is-rescheduled .loki-search-result-status { background: #e4ecfb; color: #3858c0; }
+.loki-search-result.is-finished .loki-search-result-status { background: #e4f3e7; color: #2f8a46; }
+/* Change Status row -- same status options as the main Appointments
+   section's dropdown, scoped to one search-result row with its own Save
+   button (see buildSearchResultRow's comment in loki.js). */
+.loki-search-status-row {
+  display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap;
+  padding: 10px 12px; background: var(--cream); border-radius: var(--radius-sm);
+}
+.loki-search-status-field { display: flex; flex-direction: column; gap: 4px; flex: 1 1 150px; min-width: 0; }
+.loki-search-status-field label { font-size: 0.74rem; font-weight: 600; color: var(--text-dark); }
+.loki-search-status-field select {
+  width: 100%; min-width: 0; box-sizing: border-box; padding: 7px 28px 7px 12px;
+  border: 1.5px solid #e9ddd6; border-radius: 50px; font-family: inherit; font-size: 0.82rem;
+  color: var(--text-dark); background: var(--white); cursor: pointer;
+}
+.loki-search-status-save-btn {
+  flex-shrink: 0; padding: 8px 16px; font-size: 0.8rem; font-weight: 600; border-radius: 50px;
+  cursor: pointer; transition: var(--transition); border: 1.5px solid var(--blush-dark);
+  background: var(--blush-dark); color: var(--white);
+}
+.loki-search-status-save-btn:hover:not(:disabled) { filter: brightness(0.92); }
+.loki-search-status-save-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.loki-search-result-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.loki-search-cancel-btn, .loki-search-reschedule-btn {
+  padding: 8px 16px; font-size: 0.8rem; font-weight: 600; border-radius: 50px; cursor: pointer; transition: var(--transition);
+}
+.loki-search-cancel-btn { border: 1.5px solid #e9ddd6; background: var(--white); color: #c0392b; }
+.loki-search-cancel-btn:hover { background: #c0392b; border-color: #c0392b; color: var(--white); }
+.loki-search-reschedule-btn { border: 1.5px solid var(--blush-dark); background: var(--white); color: var(--text-dark); }
+.loki-search-reschedule-btn:hover { background: var(--blush-dark); color: var(--white); }
+
+/* Inline "pick a reason and confirm" panel, revealed under a result row
+   when its Cancel button is clicked -- same [hidden]-override issue as
+   .loki-save-bar elsewhere in this file: its own
+   `display: flex` class rule beats the browser's `[hidden]{display:none}`
+   rule, so that needs an explicit override too. */
+.loki-search-cancel-panel {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 10px 12px; background: var(--cream); border-radius: var(--radius-sm);
+}
+.loki-search-cancel-panel[hidden] { display: none; }
+.loki-search-cancel-panel select {
+  flex: 1 1 200px; min-width: 0; box-sizing: border-box; padding: 7px 28px 7px 12px; border: 1.5px solid #e9ddd6; border-radius: 50px;
+  font-family: inherit; font-size: 0.82rem; color: var(--text-dark); background: var(--white); cursor: pointer;
+}
+.loki-search-cancel-confirm-btn, .loki-search-cancel-back-btn {
+  padding: 7px 14px; font-size: 0.78rem; font-weight: 600; border-radius: 50px; cursor: pointer; transition: var(--transition);
+}
+.loki-search-cancel-confirm-btn { border: 1.5px solid #c0392b; background: #c0392b; color: var(--white); }
+.loki-search-cancel-confirm-btn:hover { background: #a3301f; border-color: #a3301f; }
+.loki-search-cancel-back-btn { border: 1.5px solid #e9ddd6; background: var(--white); color: var(--text-dark); }
+
 /* ---------- Mobile ---------- */
 @media (max-width: 640px) {
   .loki-header { padding: 12px 0; }
+  /* The two header tabs would otherwise fight the brand text and Logout
+     button for room on one line -- push them onto their own full-width
+     row below, stacked, so each stays comfortably tappable. */
+  .loki-header-tabs { order: 3; width: 100%; flex-direction: column; margin-top: 4px; }
+  .loki-header-tab { width: 100%; justify-content: center; }
   .loki-section-toggle { padding: 18px 18px; font-size: 1.05rem; }
   .loki-section-body { padding: 0 16px 20px; }
   .appt-row { padding: 12px 14px; }
@@ -353,13 +457,26 @@ html, body { overflow-x: visible; }
      flex-grow:1 stretching it further), leaving a large empty gap above
      the Cancel Selected button. Reset it to size by content on mobile. */
   .loki-reason-field { flex: 1 1 auto; }
+
+  /* Cancel/Reschedule search modal: stack the name/date fields and let
+     Clear sit full-width below them instead of cramming into a row. */
+  .loki-search-fields { flex-direction: column; align-items: stretch; }
+  .loki-search-field { flex: 1 1 auto; }
+  .loki-search-clear-btn { align-self: stretch; margin-top: 0; }
+  .loki-search-result-top { flex-direction: column; align-items: flex-start; }
+  .loki-search-result-actions { width: 100%; }
+  .loki-search-cancel-btn, .loki-search-reschedule-btn { flex: 1 1 auto; text-align: center; }
+  .loki-search-cancel-panel { flex-direction: column; align-items: stretch; }
+  .loki-search-cancel-panel select { flex: 1 1 auto; width: 100%; max-width: 100%; }
+  .loki-search-status-row { flex-direction: column; align-items: stretch; }
+  .loki-search-status-field { flex: 1 1 auto; }
+  .loki-search-status-field select { width: 100%; max-width: 100%; }
+  .loki-search-status-save-btn { align-self: stretch; text-align: center; }
 }
 @media (max-width: 640px) {
-  /* Stack the two Prescription photo fields instead of a cramped 2-col
-     grid, and trim the notes textarea a little so the whole modal (notes
-     + two photo fields + Save button) still fits comfortably without
+  /* Trim the notes textarea a little so the whole modal (notes + any
+     number of photo rows + Save button) still fits comfortably without
      excessive scrolling on a phone screen. */
-  .loki-rx-image-grid { grid-template-columns: 1fr; gap: 14px; }
   #prescriptionTextarea { min-height: 140px; }
   .loki-rx-image-thumb { width: 44px; height: 44px; }
   .loki-rx-image-actions { flex-direction: column; gap: 6px; }

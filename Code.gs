@@ -22,7 +22,12 @@
  * Image 4 | InLineReply
  * Id is a running number, assigned automatically when a message is saved
  * — not used anywhere yet, kept for future use. InLineReply (column J)
- * holds Dr. Lokesh's reply typed on loki.html.
+ * holds Dr. Lokesh's reply typed on loki.html. Image / Image 2 / Image 3 /
+ * Image 4 are left blank for every message saved after the AllImages tab
+ * (below) was introduced — a patient can now attach any number of photos,
+ * not just up to 4, and every photo (old and new) is read from AllImages
+ * instead. These four columns are untouched history from before that
+ * change; nothing deletes them.
  *
  * "Booked Appointments" tab — created automatically on first booking, with
  * columns: Id | Timestamp | Name | Phone | Date | Start Time | End Time |
@@ -36,15 +41,16 @@
  *   - Prescription is a free-text field (up to ~1000 words) Dr. Lokesh or
  *     the Receptionist can fill in from a modal on loki.html, saved
  *     independently of Status. Entirely optional.
- *   - Prescription Image / Prescription Image 2 are two optional photo
- *     slots in that same modal, for a photo of the paper prescription
- *     actually handed to the patient (taken with a phone camera or picked
- *     from the gallery) — uploaded by Dr. Lokesh or the Receptionist, same
- *     as the Prescription notes text. Each is saved to Drive (same shared
- *     folder pattern as the "Message Us" photos) and the cell holds a
- *     '=HYPERLINK(...)' formula pointing at it, or is left blank if that
- *     slot was never used. Independent of the Prescription text field —
- *     either, both, or neither can be filled in for a given booking.
+ *   - Prescription Image / Prescription Image 2 are two old, now-unused
+ *     photo slots from before the AllImages tab (below) existed — kept
+ *     exactly as they were, never written to again. Dr. Lokesh or the
+ *     Receptionist can now attach any number of photos of the paper
+ *     prescription (taken with a phone camera or picked from the gallery)
+ *     from that same modal; each is saved to Drive (same shared folder
+ *     pattern as the "Message Us" photos) and recorded as its own row in
+ *     AllImages instead of one of these two columns. Independent of the
+ *     Prescription text field — any number of photos, or none, alongside
+ *     any amount of notes text, for a given booking.
  *   - Cancelled Reason is an optional dropdown, selectable per booking (or
  *     applied to a whole batch from the Cancel Dates section) whenever
  *     Status is set to Cancelled: "Doctor Got Busy in an Emergency",
@@ -69,6 +75,21 @@
  * Rows are kept sorted by Date then Start Time, so appointments are
  * always grouped together by date. You don't need to create this tab
  * yourself.
+ *
+ * "AllImages" tab — created automatically the first time any photo is
+ * uploaded (Message Us or Prescription) or the sheet is otherwise touched.
+ * Columns: Id | TimeStamp | SheetName | RowId | Image | AdditionalData.
+ * One row per photo, for any number of photos per booking or message — no
+ * more fixed-slot cap. SheetName + RowId point back at the booking/message
+ * this photo belongs to ('BookedAppointments'/'Messages', same short
+ * labels the TransactionLog tab below uses, + that row's own Id). Image is
+ * the Drive thumbnail URL; a blank Image means that photo was removed
+ * (soft-deleted, so Ids and everything below it never shift). The first
+ * time this tab is created, it also backfills every link already sitting
+ * in the old Prescription Image/Image 2 and Messages Image/2/3/4 columns,
+ * so View Photos shows full history right away — those old columns are
+ * only read from during that one-time backfill, never modified. You don't
+ * need to create this tab yourself.
  *
  * "Settings" tab — created automatically (seeded with "Address", "Maps
  * Link", "Dr Lokesh Passcode" and "Receptionist Passcode" rows) the first
@@ -177,16 +198,44 @@ const DEFAULT_SETTINGS = [
   ['Receptionist Passcode', 'Receptionist@Peerona2026']
 ];
 
-// Up to 4 optional photos per submission: '', '2', '3', '4' match the
-// website's field names (image, image2, image3, image4).
+// No longer read by any code (collectImagesUnlimited_ replaced the old
+// fixed 4-slot collectImages_ that used this) -- kept only as a record of
+// what the Messages sheet's Image/Image2/Image3/Image4 columns held for
+// messages saved before AllImages existed.
 const IMAGE_FIELD_SUFFIXES = ['', '2', '3', '4'];
 
 // Column numbers (1-based) of the two optional Prescription Image slots
-// on "Booked Appointments" (added after Cancelled Reason). Each holds
-// either blank, or a '=HYPERLINK(...)' formula in the same shape the
-// Messages sheet's Image/Image2/Image3/Image4 columns use — see
-// handleLokiSavePrescriptionImage_ and getAppointmentsForLoki_.
+// on "Booked Appointments" (added after Cancelled Reason). These are kept
+// only as HISTORY now -- new prescription photos (and new Message Us
+// photos) are no longer written here or into Messages' Image/Image2/3/4
+// columns. Both sets of columns stay in their sheets, untouched, holding
+// whatever was already in them; every current and future photo instead
+// gets one row in the "AllImages" sheet below, which is what View Photos
+// / the Prescription gallery actually reads from. See
+// getOrCreateAllImagesSheet_, addImageRecord_, getImagesForRow_, and
+// migrateExistingImagesToAllImages_ (which copies these old links into
+// AllImages once, the first time AllImages is touched).
 const PRESCRIPTION_IMAGE_COLUMNS = [14, 15];
+
+// "AllImages" tab — created automatically the first time any code touches
+// it, with columns: Id | TimeStamp | SheetName | RowId | Image |
+// AdditionalData. One row per photo, for any number of photos per booking
+// or message (no more fixed 2-slot / 4-slot cap). SheetName is the same
+// short label TransactionLog uses ('BookedAppointments' or 'Messages'),
+// RowId is that row's own Id within that sheet, Image is the Drive
+// thumbnail URL (blank means removed -- see handleLokiRemovePrescriptionImage_,
+// a soft delete that keeps the row instead of shifting everything below
+// it), and AdditionalData is a short free-text label ("Prescription Photo",
+// "Message Photo 2", etc., with " (migrated)" appended for rows backfilled
+// from the old fixed columns).
+const ALL_IMAGES_SHEET_NAME = 'AllImages';
+
+// Safety cap on how many photos one Message Us submission can attach in a
+// single request -- "any number" for a real patient's phone photos, but
+// still a finite bound so one request can't blow up Drive storage or the
+// request size. Comfortably above anything the UI's own practical limits
+// (file size, how many a person will actually attach) would reach.
+const MAX_PHOTOS_PER_MESSAGE = 20;
 
 /**
  * Run this once manually from the Apps Script editor (select it in the
@@ -210,6 +259,7 @@ function authorizeAccess() {
   getOrCreateUsersSheet_();
   getOrCreateActionsSheet_();
   getOrCreateTransactionLogSheet_();
+  getOrCreateAllImagesSheet_();
 }
 
 function jsonResponse_(obj) {
@@ -319,6 +369,153 @@ function logTransactionSafe_(sheetName, rowId, actionId, userId, additionalData)
 }
 
 /* ============================================================
+ * "AllImages" — one row per photo, for any number of photos per
+ * BookedAppointments/Messages row. See the ALL_IMAGES_SHEET_NAME comment
+ * above for the column layout and why this replaced the old fixed-slot
+ * columns.
+ * ============================================================ */
+
+function getOrCreateAllImagesSheet_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(ALL_IMAGES_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(ALL_IMAGES_SHEET_NAME);
+    sheet.appendRow(['Id', 'TimeStamp', 'SheetName', 'RowId', 'Image', 'AdditionalData']);
+    sheet.getRange(1, 1, 1, 6).setFontWeight('bold');
+    sheet.setFrozenRows(1);
+  }
+  migrateExistingImagesToAllImagesSafe_(sheet);
+  return sheet;
+}
+
+// Appends one row to AllImages and returns its new Id (used by the
+// Prescription gallery to delete this exact photo later, independent of
+// whatever else has since been added for the same booking).
+function addImageRecord_(sheetName, rowId, imageUrl, additionalData) {
+  const sheet = getOrCreateAllImagesSheet_();
+  const newId = getNextId_(sheet);
+  sheet.appendRow([newId, new Date(), sheetName, rowId, imageUrl, additionalData || '']);
+  return newId;
+}
+
+// Same as addImageRecord_, but never throws — used wherever recording the
+// photo must not be allowed to undo an otherwise-successful save (a new
+// Message Us submission already wrote its row; a slow/failed AllImages
+// write shouldn't turn that into a reported failure).
+function addImageRecordSafe_(sheetName, rowId, imageUrl, additionalData) {
+  try {
+    return addImageRecord_(sheetName, rowId, imageUrl, additionalData);
+  } catch (err) {
+    return null;
+  }
+}
+
+// Reads the whole AllImages sheet ONCE and groups it by "sheetName|rowId"
+// so getAppointmentsForLoki_/getMessagesForLoki_ can look up each row's
+// photos in memory instead of re-reading AllImages once per booking/message
+// (which would be an N+1 read pattern on every page load as the sheet
+// grows). A blank Image cell (a removed photo — see
+// handleLokiRemovePrescriptionImage_) is skipped here, not just filtered
+// later, so callers never have to think about soft-deleted rows.
+function getAllImagesIndexed_() {
+  const sheet = getOrCreateAllImagesSheet_();
+  const lastRow = sheet.getLastRow();
+  const index = {};
+  if (lastRow < 2) return index;
+
+  const data = sheet.getRange(2, 1, lastRow - 1, 6).getValues();
+  data.forEach((row) => {
+    const url = String(row[4] || '');
+    if (!url) return;
+    const key = String(row[2] || '') + '|' + String(row[3]);
+    if (!index[key]) index[key] = [];
+    index[key].push({ id: row[0], url: url, additionalData: String(row[5] || '') });
+  });
+  return index;
+}
+
+// Looks up one row's photos from an index built by getAllImagesIndexed_.
+// Always returns an array (possibly empty), never null/undefined, so
+// callers can .map()/.length it without a guard.
+function getImagesForRow_(index, sheetName, rowId) {
+  return index[sheetName + '|' + String(rowId)] || [];
+}
+
+// One-time backfill: copies every link already sitting in the old fixed
+// columns (Booked Appointments' Prescription Image / Prescription Image 2,
+// Messages' Image / Image 2 / Image 3 / Image 4) into AllImages, so
+// View Photos / the Prescription gallery show the complete history right
+// away instead of only photos uploaded after this feature shipped. Those
+// old columns are left exactly as they were — this only ADDS AllImages
+// rows, it never touches Booked Appointments or Messages. Guarded by a
+// script property so it only runs once per spreadsheet, however many
+// times getOrCreateAllImagesSheet_ is called afterward.
+function migrateExistingImagesToAllImages_(allImagesSheet) {
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty('ALL_IMAGES_MIGRATED') === 'true') return;
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const rowsToAdd = [];
+  let nextId = getNextId_(allImagesSheet);
+
+  const apptSheet = ss.getSheetByName(APPOINTMENTS_SHEET_NAME);
+  if (apptSheet) {
+    const lastRow = apptSheet.getLastRow();
+    if (lastRow >= 2) {
+      const ids = apptSheet.getRange(2, 1, lastRow - 1, 1).getValues();
+      const timestamps = apptSheet.getRange(2, 2, lastRow - 1, 1).getValues();
+      const formulas = apptSheet.getRange(2, PRESCRIPTION_IMAGE_COLUMNS[0], lastRow - 1,
+        PRESCRIPTION_IMAGE_COLUMNS[1] - PRESCRIPTION_IMAGE_COLUMNS[0] + 1).getFormulas();
+      for (let i = 0; i < ids.length; i++) {
+        const apptId = ids[i][0];
+        const ts = timestamps[i][0] instanceof Date ? timestamps[i][0] : new Date();
+        formulas[i].forEach((formula, slotIdx) => {
+          const url = extractHyperlinkUrl_(formula);
+          if (url) rowsToAdd.push([nextId++, ts, 'BookedAppointments', apptId, url, 'Prescription Photo (migrated)']);
+        });
+      }
+    }
+  }
+
+  const msgSheet = ss.getSheetByName(SHEET_NAME);
+  if (msgSheet) {
+    const lastRow = msgSheet.getLastRow();
+    if (lastRow >= 2) {
+      const ids = msgSheet.getRange(2, 1, lastRow - 1, 1).getValues();
+      const timestamps = msgSheet.getRange(2, 2, lastRow - 1, 1).getValues();
+      const formulas = msgSheet.getRange(2, 6, lastRow - 1, 4).getFormulas();
+      for (let i = 0; i < ids.length; i++) {
+        const msgId = ids[i][0];
+        const ts = timestamps[i][0] instanceof Date ? timestamps[i][0] : new Date();
+        formulas[i].forEach((formula, slotIdx) => {
+          const url = extractHyperlinkUrl_(formula);
+          if (url) rowsToAdd.push([nextId++, ts, 'Messages', msgId, url, 'Message Photo (migrated)']);
+        });
+      }
+    }
+  }
+
+  if (rowsToAdd.length) {
+    allImagesSheet.getRange(allImagesSheet.getLastRow() + 1, 1, rowsToAdd.length, 6).setValues(rowsToAdd);
+  }
+  props.setProperty('ALL_IMAGES_MIGRATED', 'true');
+}
+
+// migrateExistingImagesToAllImages_ runs inside getOrCreateAllImagesSheet_,
+// which many request paths call — a migration hiccup (a malformed old
+// cell, a transient Sheets error) must never break whatever the caller was
+// actually trying to do, so this wraps it the same way logTransactionSafe_
+// wraps logTransaction_. The script property guard is left unset on
+// failure, so the next request simply tries the backfill again.
+function migrateExistingImagesToAllImagesSafe_(allImagesSheet) {
+  try {
+    migrateExistingImagesToAllImages_(allImagesSheet);
+  } catch (err) {
+    // Swallow — AllImages (and whatever the caller needed it for) already works.
+  }
+}
+
+/* ============================================================
  * "Message Us" form (images optional)
  * ============================================================ */
 
@@ -353,24 +550,28 @@ function saveImageAndGetUrl_(blob) {
   return 'https://drive.google.com/thumbnail?id=' + file.getId() + '&sz=w4096';
 }
 
-// Reads every present imageNBase64/imageNName/imageNMime trio from the
-// POST, saves each to Drive, and returns one entry per photo slot (1-4)
-// with everything the sheet row and the email need. A photo that failed
-// to save still gets an entry so the sheet cell can show the error instead
-// of silently losing the rest of the submission.
-function collectImages_(params) {
-  return IMAGE_FIELD_SUFFIXES.map((suffix) => {
-    const base64 = params['image' + suffix + 'Base64'];
-    if (!base64) return { cell: '', url: '', blob: null };
-
+// Reads however many photo0Base64, photo1Base64, ... trios the POST
+// actually sent (any number, up to MAX_PHOTOS_PER_MESSAGE) and saves each
+// to Drive. Replaces the old fixed image/image2/image3/image4 reader —
+// those four field names and the IMAGE_FIELD_SUFFIXES list above are no
+// longer sent by script.js's "Add Photo" picker, kept only as a comment on
+// what the Messages sheet's Image/Image2/Image3/Image4 columns used to
+// hold. A photo that fails to upload still gets an entry (url: '') so the
+// caller can report it without losing the rest of the submission.
+function collectImagesUnlimited_(params) {
+  const results = [];
+  for (let i = 0; i < MAX_PHOTOS_PER_MESSAGE; i++) {
+    const base64 = params['photo' + i + 'Base64'];
+    if (!base64) continue;
     try {
-      const blob = buildImageBlob_(base64, params['image' + suffix + 'Mime'], params['image' + suffix + 'Name']);
+      const blob = buildImageBlob_(base64, params['photo' + i + 'Mime'], params['photo' + i + 'Name']);
       const url = saveImageAndGetUrl_(blob);
-      return { cell: '=HYPERLINK("' + url + '", "View Image")', url: url, blob: blob };
+      results.push({ url: url, blob: blob });
     } catch (imgErr) {
-      return { cell: 'Upload failed: ' + imgErr.message, url: '', blob: null };
+      results.push({ url: '', blob: null, error: imgErr.message });
     }
-  });
+  }
+  return results;
 }
 
 function sendNotificationEmail_(name, phone, message, images) {
@@ -423,21 +624,35 @@ function handleMessage_(params) {
     // if Drive saving fails for one or more of them, we still want the
     // name/phone/message to land in the sheet instead of losing the whole
     // submission.
-    const images = collectImages_(params);
+    const images = collectImagesUnlimited_(params);
     const newId = getNextId_(sheet);
 
+    // Image / Image 2 / Image 3 / Image 4 are left blank for every new
+    // row now -- any number of photos (not just up to 4) gets recorded in
+    // AllImages instead (below), which is what getMessagesForLoki_'s View
+    // Photos reads from. The four columns stay in this sheet for rows
+    // saved before this change; see migrateExistingImagesToAllImages_.
     const row = [
       newId,
       new Date(),                  // Timestamp
       params.name || '',           // Name
       params.phone || '',          // Phone
       params.message || '',        // Message
-    ].concat(images.map((img) => img.cell)); // Image, Image 2, Image 3, Image 4
-    row.push(''); // InLineReply, filled in later from loki.html
+      '', '', '', '',              // Image, Image 2, Image 3, Image 4 (unused for new rows)
+      ''                            // InLineReply, filled in later from loki.html
+    ];
 
     sheet.appendRow(row);
+
+    images.forEach((img, i) => {
+      if (!img.url) return;
+      addImageRecordSafe_('Messages', newId, img.url, 'Message Photo ' + (i + 1));
+    });
+
+    const photoCount = images.filter((img) => img.url).length;
     logTransactionSafe_('Messages', newId, ACTION_ID_CREATE, USER_ID_PATIENT,
-      'Name:' + (params.name || '') + ' | Phone:' + (params.phone || ''));
+      'Name:' + (params.name || '') + ' | Phone:' + (params.phone || '') +
+      (photoCount ? (' | Photos:' + photoCount) : ''));
 
     // Same resilience approach as the photo upload: a failed email should
     // never cause the submission itself to be lost or reported as failed.
@@ -598,7 +813,12 @@ function isSlotBooked_(dateStr, startTime) {
 function sortAppointmentsSheet_(sheet) {
   const lastRow = sheet.getLastRow();
   if (lastRow <= 2) return; // 0 or 1 data rows — nothing to sort
-  const range = sheet.getRange(2, 1, lastRow - 1, 13);
+  // 15 columns (through Prescription Image 2), not 13 -- sorting fewer
+  // columns than the sheet actually has would move Name/Date/etc. to their
+  // new sorted position while leaving the two Prescription Image columns
+  // behind in their old row, silently detaching an uploaded photo from the
+  // booking it belongs to the next time anything re-sorts the sheet.
+  const range = sheet.getRange(2, 1, lastRow - 1, 15);
   range.sort([{ column: 5, ascending: true }, { column: 6, ascending: true }]);
 }
 
@@ -769,6 +989,108 @@ function handleAppointment_(params) {
   }
 }
 
+// Admin-initiated reschedule, used by loki.html's "Cancel/Reschedule
+// Appointment" tab -- Dr Lokesh or the Receptionist picks an existing
+// booking (any status except Finished/already-ReScheduled) and moves it to
+// a new date/time in one step.
+//
+// This is deliberately a separate action from handleAppointment_'s own
+// originalId handling (used by reschedule.html, reached from a
+// cancellation email): that path only links back to the original row when
+// it's already Cancelled (see linkRescheduledAppointment_) -- by design,
+// since a patient only gets that link after their booking was cancelled.
+// An admin rescheduling a still-Upcoming booking over the phone has no
+// such precondition, so this action marks the original row ReScheduled
+// unconditionally (short of the two statuses above), instead of silently
+// leaving it dangling as a duplicate active booking.
+function handleLokiReschedule_(params) {
+  const actingUser = resolveLokiUser_(params.passcode);
+  if (!actingUser) {
+    return jsonResponse_({ result: 'error', message: 'Invalid passcode.' });
+  }
+
+  const originalId = (params.originalId || '').trim();
+  const name = (params.name || '').trim();
+  const phone = (params.phone || '').trim();
+  const email = (params.email || '').trim();
+  const date = (params.date || '').trim();
+  const startTime = (params.timeSlotStart || '').trim();
+  const endTime = (params.timeSlotEnd || '').trim();
+  const label = (params.timeSlotLabel || '').trim();
+
+  if (!originalId || !name || !phone || !date || !startTime || !endTime) {
+    return jsonResponse_({ result: 'error', message: 'Missing required appointment details.' });
+  }
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return jsonResponse_({ result: 'error', message: 'Please enter a valid email address, or leave it blank.' });
+  }
+
+  const lock = LockService.getScriptLock();
+  lock.tryLock(10000);
+
+  try {
+    const sheet = getOrCreateAppointmentsSheet_();
+    const originalRow = findRowById_(sheet, originalId);
+    if (originalRow === -1) {
+      return jsonResponse_({ result: 'error', message: 'Could not find that booking.' });
+    }
+    const originalStatus = String(sheet.getRange(originalRow, 10).getValue() || '').trim();
+    if (originalStatus === STATUS_FINISHED) {
+      return jsonResponse_({ result: 'error', message: 'A finished appointment can\'t be rescheduled.' });
+    }
+    if (originalStatus === STATUS_RESCHEDULED) {
+      return jsonResponse_({ result: 'error', message: 'This appointment has already been rescheduled.' });
+    }
+
+    // Re-checked here (not just client-side) so two overlapping actions
+    // can't both succeed -- same guard as a normal booking.
+    if (isSlotBooked_(date, startTime)) {
+      return jsonResponse_({
+        result: 'conflict',
+        message: 'That time slot is already booked for ' + date + '. Please choose another time.'
+      });
+    }
+
+    const newId = getNextId_(sheet);
+    sheet.appendRow([newId, new Date(), name, phone, date, startTime, endTime, label, email, '', '', '', '']);
+    sortAppointmentsSheet_(sheet);
+
+    // sortAppointmentsSheet_ just re-sorted the whole sheet, so the
+    // original row's position may have moved -- look it up again by Id
+    // rather than reusing originalRow.
+    const freshOriginalRow = findRowById_(sheet, originalId);
+    if (freshOriginalRow !== -1) {
+      sheet.getRange(freshOriginalRow, 10).setValue(STATUS_RESCHEDULED);
+      sheet.getRange(freshOriginalRow, 11).setValue(newId);
+    }
+
+    logTransactionSafe_('BookedAppointments', newId, ACTION_ID_CREATE, actingUser.id,
+      'Name:' + name + ' | Phone:' + phone + ' | Email:' + (email || '-') + ' | RescheduledFrom:' + originalId);
+    logTransactionSafe_('BookedAppointments', originalId, ACTION_ID_MODIFY, actingUser.id,
+      'Status: ' + (originalStatus || '-') + ' -> ReScheduled | ReScheduledId:' + newId);
+
+    try {
+      sendAppointmentEmail_(name, phone, date, label, email, true);
+    } catch (mailErr) {
+      // Swallow — the reschedule itself is already saved.
+    }
+
+    try {
+      addAppointmentCalendarEvent_(name, phone, date, startTime, endTime);
+    } catch (calErr) {
+      // Swallow — the reschedule itself is already saved.
+    }
+
+    return jsonResponse_({ result: 'success', id: newId });
+
+  } catch (err) {
+    return jsonResponse_({ result: 'error', message: err.message });
+
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 /* ============================================================
  * Global settings (editable directly in the "Settings" sheet)
  * ============================================================ */
@@ -894,13 +1216,13 @@ function getAppointmentsForLoki_() {
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
 
-  // Prescription Image / Prescription Image 2 (columns 14-15) hold
-  // HYPERLINK formulas, same as the Messages sheet's photo columns, so
-  // both .getValues() (everything else) and .getFormulas() (just those
-  // two columns) are needed here.
+  // Prescription photos used to live in two fixed HYPERLINK-formula
+  // columns (14-15) read right here; now they come from AllImages instead
+  // (any number of them), looked up once via getAllImagesIndexed_ rather
+  // than re-reading AllImages per row.
   const data = sheet.getRange(2, 1, lastRow - 1, 15).getValues();
-  const formulas = sheet.getRange(2, 14, lastRow - 1, 2).getFormulas();
-  return data.map((row, i) => ({
+  const imagesIndex = getAllImagesIndexed_();
+  return data.map((row) => ({
     id: row[0],
     timestamp: formatTimestampIso_(row[1]),
     name: String(row[2] || ''),
@@ -914,8 +1236,11 @@ function getAppointmentsForLoki_() {
     rescheduledId: row[10] === '' || row[10] === null ? '' : row[10],
     prescription: String(row[11] || ''),
     cancelledReason: String(row[12] || ''),
-    prescriptionImage: extractHyperlinkUrl_(formulas[i][0]),
-    prescriptionImage2: extractHyperlinkUrl_(formulas[i][1])
+    // [{ id, url }, ...] -- id is the AllImages row's own Id, needed so
+    // the Prescription modal's per-photo Remove can target exactly one
+    // photo via handleLokiRemovePrescriptionImage_.
+    prescriptionImages: getImagesForRow_(imagesIndex, 'BookedAppointments', row[0])
+      .map((img) => ({ id: img.id, url: img.url }))
   }));
 }
 
@@ -926,22 +1251,20 @@ function getMessagesForLoki_() {
 
   const numCols = Math.max(sheet.getLastColumn(), 10);
   const values = sheet.getRange(2, 1, lastRow - 1, numCols).getValues();
-  const formulas = sheet.getRange(2, 1, lastRow - 1, numCols).getFormulas();
+  // Photos used to be read from the four fixed Image/Image2/3/4 HYPERLINK
+  // columns right here; now they come from AllImages (any number of them),
+  // looked up once via getAllImagesIndexed_ instead of a per-row formula read.
+  const imagesIndex = getAllImagesIndexed_();
 
-  return values.map((row, i) => {
-    const images = [5, 6, 7, 8] // 0-based indices of Image, Image 2, Image 3, Image 4
-      .map((colIdx) => extractHyperlinkUrl_(formulas[i][colIdx]))
-      .filter(Boolean);
-    return {
-      id: row[0],
-      timestamp: formatTimestampIso_(row[1]),
-      name: String(row[2] || ''),
-      phone: String(row[3] || ''),
-      message: String(row[4] || ''),
-      images: images,
-      inlineReply: String(row[9] || '')
-    };
-  });
+  return values.map((row) => ({
+    id: row[0],
+    timestamp: formatTimestampIso_(row[1]),
+    name: String(row[2] || ''),
+    phone: String(row[3] || ''),
+    message: String(row[4] || ''),
+    images: getImagesForRow_(imagesIndex, 'Messages', row[0]).map((img) => img.url),
+    inlineReply: String(row[9] || '')
+  }));
 }
 
 // Scans column B (Timestamp) for a row matching the given ISO timestamp.
@@ -1059,46 +1382,72 @@ function handleLokiSaveApptStatus_(params) {
 // saveImageAndGetUrl_), and the same 1-request-per-photo shape, so a
 // failed upload never risks the Prescription text save that normally
 // accompanies it from the same modal.
-function handleLokiSavePrescriptionImage_(params) {
+// Uploads one new prescription photo for a booking, any number of times
+// -- replaces the old fixed 2-slot handleLokiSavePrescriptionImage_. Each
+// call adds exactly one AllImages row and returns its id, which the
+// Prescription modal keeps so a later "Remove" on that specific photo can
+// target it (see handleLokiRemovePrescriptionImage_ below) without
+// disturbing any other photo added before or after it.
+function handleLokiAddPrescriptionImage_(params) {
   const actingUser = resolveLokiUser_(params.passcode);
   if (!actingUser) {
     return jsonResponse_({ result: 'error', message: 'Invalid passcode.' });
   }
 
-  const slot = Number(params.slot);
-  if (slot !== 1 && slot !== 2) {
-    return jsonResponse_({ result: 'error', message: 'Invalid image slot.' });
+  const apptSheet = getOrCreateAppointmentsSheet_();
+  const row = findRowById_(apptSheet, params.id);
+  if (row === -1) {
+    return jsonResponse_({ result: 'error', message: 'Booking not found.' });
   }
-  const column = PRESCRIPTION_IMAGE_COLUMNS[slot - 1];
+
+  const base64 = params.imageBase64;
+  if (!base64) {
+    return jsonResponse_({ result: 'error', message: 'No image received.' });
+  }
 
   const lock = LockService.getScriptLock();
   lock.tryLock(10000);
 
   try {
-    const sheet = getOrCreateAppointmentsSheet_();
-    const row = findRowById_(sheet, params.id);
-    if (row === -1) {
-      return jsonResponse_({ result: 'error', message: 'Booking not found.' });
-    }
-
-    if (params.remove === 'true') {
-      sheet.getRange(row, column).setValue('');
-      logTransactionSafe_('BookedAppointments', params.id, ACTION_ID_MODIFY, actingUser.id,
-        'Prescription Image ' + slot + ' removed');
-      return jsonResponse_({ result: 'success', url: '' });
-    }
-
-    const base64 = params.imageBase64;
-    if (!base64) {
-      return jsonResponse_({ result: 'error', message: 'No image received.' });
-    }
-
     const blob = buildImageBlob_(base64, params.imageMime, params.imageName);
     const url = saveImageAndGetUrl_(blob);
-    sheet.getRange(row, column).setValue('=HYPERLINK("' + url + '", "View Image")');
+    const imageId = addImageRecord_('BookedAppointments', params.id, url, 'Prescription Photo');
     logTransactionSafe_('BookedAppointments', params.id, ACTION_ID_MODIFY, actingUser.id,
-      'Prescription Image ' + slot + ' uploaded');
-    return jsonResponse_({ result: 'success', url: url });
+      'Prescription photo added');
+    return jsonResponse_({ result: 'success', imageId: imageId, url: url });
+
+  } catch (err) {
+    return jsonResponse_({ result: 'error', message: err.message });
+
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Removes one prescription photo by its own AllImages Id (not by booking
+// id + slot, since there's no slot anymore). Soft-delete: blanks the
+// Image cell instead of deleting the row, so AllImages Ids stay stable and
+// nothing below it shifts up mid-request. getAllImagesIndexed_ skips blank
+// Image cells, so a removed photo simply stops showing up anywhere.
+function handleLokiRemovePrescriptionImage_(params) {
+  const actingUser = resolveLokiUser_(params.passcode);
+  if (!actingUser) {
+    return jsonResponse_({ result: 'error', message: 'Invalid passcode.' });
+  }
+
+  const lock = LockService.getScriptLock();
+  lock.tryLock(10000);
+
+  try {
+    const allImagesSheet = getOrCreateAllImagesSheet_();
+    const row = findRowById_(allImagesSheet, params.imageId);
+    if (row === -1) {
+      return jsonResponse_({ result: 'error', message: 'Photo not found.' });
+    }
+    allImagesSheet.getRange(row, 5).setValue('');
+    logTransactionSafe_('BookedAppointments', params.id || '', ACTION_ID_MODIFY, actingUser.id,
+      'Prescription photo removed');
+    return jsonResponse_({ result: 'success' });
 
   } catch (err) {
     return jsonResponse_({ result: 'error', message: err.message });
@@ -1201,8 +1550,14 @@ function doPost(e) {
   if (params.action === 'lokiSaveApptStatus') {
     return handleLokiSaveApptStatus_(params);
   }
-  if (params.action === 'lokiSavePrescriptionImage') {
-    return handleLokiSavePrescriptionImage_(params);
+  if (params.action === 'lokiAddPrescriptionImage') {
+    return handleLokiAddPrescriptionImage_(params);
+  }
+  if (params.action === 'lokiRemovePrescriptionImage') {
+    return handleLokiRemovePrescriptionImage_(params);
+  }
+  if (params.action === 'lokiReschedule') {
+    return handleLokiReschedule_(params);
   }
   if (params.action === 'lokiSendReply') {
     return handleLokiSendReply_(params);
