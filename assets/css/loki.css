@@ -113,7 +113,12 @@ html, body { overflow-x: visible; }
 .appt-row-info span { font-size: 0.82rem; color: var(--text-light); }
 .appt-row.is-cancelled .appt-row-info strong,
 .appt-row.is-rescheduled .appt-row-info strong { text-decoration: line-through; }
-.appt-row-rescheduled-note { font-size: 0.78rem; color: var(--text-light); font-style: italic; }
+.appt-row-rescheduled-link {
+  font: inherit; font-size: 0.78rem; font-weight: 600; color: var(--blush-dark);
+  background: none; border: none; padding: 0; margin: 0; text-align: left;
+  text-decoration: underline; cursor: pointer; transition: var(--transition); align-self: flex-start;
+}
+.appt-row-rescheduled-link:hover { color: var(--text-dark); }
 .appt-row-time { font-size: 0.86rem; font-weight: 600; color: var(--text-dark); white-space: nowrap; }
 .appt-row-status { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
 .appt-row-status select {
@@ -359,6 +364,19 @@ html, body { overflow-x: visible; }
 .loki-search-regex-toggle input { width: auto; flex-shrink: 0; cursor: pointer; }
 .loki-search-clear-btn { flex-shrink: 0; margin-top: 26px; padding: 10px 18px; font-size: 0.82rem; }
 
+/* Shown only while a "View Rescheduled Booking" jump is stacked (hidden
+   otherwise, see the `hidden` attribute in loki.html) -- lets Dr Lokesh /
+   Management step back out of a multi-level reschedule chain one jump at
+   a time. */
+.loki-search-back-btn {
+  display: flex; align-items: center; gap: 6px; margin-bottom: 14px;
+  padding: 8px 16px; font-size: 0.82rem; font-weight: 600; color: var(--blush-dark);
+  background: var(--white); border: 1.5px solid var(--blush-dark); border-radius: 50px;
+  cursor: pointer; transition: var(--transition);
+}
+.loki-search-back-btn:hover { background: var(--blush-dark); color: var(--white); }
+.loki-search-back-btn[hidden] { display: none; }
+
 .loki-search-results { display: flex; flex-direction: column; gap: 12px; }
 .loki-search-result {
   border: 1.5px solid #e9ddd6; border-radius: var(--radius-sm); padding: 14px 16px;
@@ -398,13 +416,15 @@ html, body { overflow-x: visible; }
 .loki-search-status-save-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .loki-search-result-actions { display: flex; gap: 10px; flex-wrap: wrap; }
-.loki-search-cancel-btn, .loki-search-reschedule-btn {
+.loki-search-cancel-btn, .loki-search-reschedule-btn, .loki-search-view-photos-btn {
   padding: 8px 16px; font-size: 0.8rem; font-weight: 600; border-radius: 50px; cursor: pointer; transition: var(--transition);
 }
 .loki-search-cancel-btn { border: 1.5px solid #e9ddd6; background: var(--white); color: #c0392b; }
 .loki-search-cancel-btn:hover { background: #c0392b; border-color: #c0392b; color: var(--white); }
 .loki-search-reschedule-btn { border: 1.5px solid var(--blush-dark); background: var(--white); color: var(--text-dark); }
 .loki-search-reschedule-btn:hover { background: var(--blush-dark); color: var(--white); }
+.loki-search-view-photos-btn { border: 1.5px solid var(--blush-dark); background: var(--white); color: var(--blush-dark); }
+.loki-search-view-photos-btn:hover { background: var(--blush-dark); color: var(--white); }
 
 /* Inline "pick a reason and confirm" panel, revealed under a result row
    when its Cancel button is clicked -- same [hidden]-override issue as
@@ -465,7 +485,7 @@ html, body { overflow-x: visible; }
   .loki-search-clear-btn { align-self: stretch; margin-top: 0; }
   .loki-search-result-top { flex-direction: column; align-items: flex-start; }
   .loki-search-result-actions { width: 100%; }
-  .loki-search-cancel-btn, .loki-search-reschedule-btn { flex: 1 1 auto; text-align: center; }
+  .loki-search-cancel-btn, .loki-search-reschedule-btn, .loki-search-view-photos-btn { flex: 1 1 auto; text-align: center; }
   .loki-search-cancel-panel { flex-direction: column; align-items: stretch; }
   .loki-search-cancel-panel select { flex: 1 1 auto; width: 100%; max-width: 100%; }
   .loki-search-status-row { flex-direction: column; align-items: stretch; }

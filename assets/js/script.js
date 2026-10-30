@@ -322,6 +322,8 @@ document.addEventListener('DOMContentLoaded', () => {
       slide.addEventListener('click', () => {
         current = i;
         renderGlimpse();
+        const slideImg = slide.querySelector('img');
+        if (slideImg) openImgLightbox(slideImg.src, slideImg.alt);
       });
     });
     // A drag that moved the carousel shouldn't also register as a click on
@@ -548,6 +550,81 @@ document.addEventListener('DOMContentLoaded', () => {
       });
   })();
 
+  /* ---------- Shared modal body-scroll lock ----------
+     document.body.style.overflow = 'hidden' alone can still let the
+     background page scroll on some browsers/devices (trackpad momentum,
+     mouse-wheel over the dark backdrop, etc. "scroll chains" past the
+     hidden body). Locking with position:fixed removes the body from the
+     normal flow entirely while a modal is open, so there is nothing for
+     that stray scroll to act on; we restore the exact scroll position on
+     close. A counter supports (defensively) more than one modal being
+     open/closing in quick succession without one closing modal re-enabling
+     scroll while another is still open. */
+  let modalLockCount = 0;
+  let modalLockScrollY = 0;
+  const lockBodyScroll = () => {
+    if (modalLockCount === 0) {
+      modalLockScrollY = window.scrollY || window.pageYOffset || 0;
+      document.body.style.position = 'fixed';
+      document.body.style.top = `-${modalLockScrollY}px`;
+      document.body.style.left = '0';
+      document.body.style.right = '0';
+      document.body.style.width = '100%';
+      document.body.style.overflow = 'hidden';
+    }
+    modalLockCount++;
+  };
+  const unlockBodyScroll = () => {
+    modalLockCount = Math.max(0, modalLockCount - 1);
+    if (modalLockCount === 0) {
+      document.body.style.position = '';
+      document.body.style.top = '';
+      document.body.style.left = '';
+      document.body.style.right = '';
+      document.body.style.width = '';
+      document.body.style.overflow = '';
+      // 'instant' overrides the page's CSS scroll-behavior:smooth so the
+      // restore lands exactly, instead of animating and getting cut short.
+      window.scrollTo({ top: modalLockScrollY, left: 0, behavior: 'instant' });
+    }
+  };
+
+  /* ---------- Image lightbox (shared by both scrolling-image carousels:
+     the hero's "Signature Treatments" strip and the Gallery section) ----------
+     Clicking any slide -- first one, last one, or anywhere in between --
+     opens its photo full-size in a closeable overlay, on top of the
+     carousel's existing click-to-center behavior (both happen on the same
+     click; see initGlimpseCarousel's slide click listener below). */
+  const imgLightboxOverlay = document.getElementById('imgLightboxOverlay');
+  const imgLightboxImg = document.getElementById('imgLightboxImg');
+  const imgLightboxCloseBtn = document.getElementById('imgLightboxClose');
+
+  const openImgLightbox = (src, alt) => {
+    if (!imgLightboxOverlay || !imgLightboxImg) return;
+    imgLightboxImg.src = src;
+    imgLightboxImg.alt = alt || '';
+    imgLightboxOverlay.classList.add('is-open');
+    lockBodyScroll();
+  };
+  const closeImgLightbox = () => {
+    if (!imgLightboxOverlay) return;
+    imgLightboxOverlay.classList.remove('is-open');
+    unlockBodyScroll();
+  };
+  if (imgLightboxCloseBtn) imgLightboxCloseBtn.addEventListener('click', closeImgLightbox);
+  if (imgLightboxOverlay) {
+    // Click the dark backdrop (not the photo itself) to close, same
+    // press-and-release-both-on-the-backdrop guard the other modals use so
+    // a text-selection drag ending over the backdrop doesn't close it.
+    let imgLightboxMouseDownOnOverlay = false;
+    imgLightboxOverlay.addEventListener('mousedown', (e) => {
+      imgLightboxMouseDownOnOverlay = (e.target === imgLightboxOverlay);
+    });
+    imgLightboxOverlay.addEventListener('click', (e) => {
+      if (e.target === imgLightboxOverlay && imgLightboxMouseDownOnOverlay) closeImgLightbox();
+      imgLightboxMouseDownOnOverlay = false;
+    });
+  }
   const messageModalOverlay = document.getElementById('messageModalOverlay');
   const openMessageModalBtn = document.getElementById('openMessageModal');
   const closeMessageModalBtn = document.getElementById('closeMessageModal');
@@ -568,12 +645,12 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
     messageModalOverlay.classList.add('is-open');
-    document.body.style.overflow = 'hidden';
+    lockBodyScroll();
   };
   const closeMessageModal = () => {
     if (!messageModalOverlay) return;
     messageModalOverlay.classList.remove('is-open');
-    document.body.style.overflow = '';
+    unlockBodyScroll();
   };
 
   if (openMessageModalBtn) openMessageModalBtn.addEventListener('click', openMessageModal);
@@ -740,12 +817,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     refreshSlotAvailability();
     appointmentModalOverlay.classList.add('is-open');
-    document.body.style.overflow = 'hidden';
+    lockBodyScroll();
   };
   const closeAppointmentModal = () => {
     if (!appointmentModalOverlay) return;
     appointmentModalOverlay.classList.remove('is-open');
-    document.body.style.overflow = '';
+    unlockBodyScroll();
   };
 
   if (openAppointmentModalBtn) openAppointmentModalBtn.addEventListener('click', openAppointmentModal);
@@ -854,6 +931,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.key !== 'Escape') return;
     if (messageModalOverlay && messageModalOverlay.classList.contains('is-open')) closeMessageModal();
     if (appointmentModalOverlay && appointmentModalOverlay.classList.contains('is-open')) closeAppointmentModal();
+    if (imgLightboxOverlay && imgLightboxOverlay.classList.contains('is-open')) closeImgLightbox();
   });
 
   const MAX_IMAGE_BYTES = 4 * 1024 * 1024; // 4 MB

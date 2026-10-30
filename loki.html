@@ -167,7 +167,7 @@
   <div class="modal-box loki-photos-box">
     <button type="button" class="modal-close" id="closePhotosModal" aria-label="Close"><i data-icon="x"></i></button>
     <h3>Photos</h3>
-    <p class="modal-sub">Uploaded with this message.</p>
+    <p class="modal-sub" id="photosModalSub">Uploaded with this message.</p>
     <div class="modal-scroll-content loki-photos-scroll" id="photosScroll"></div>
   </div>
 </div>
@@ -270,6 +270,7 @@
         </div>
         <button type="button" class="btn btn-outline loki-search-clear-btn" id="lokiSearchClearBtn">Clear</button>
       </div>
+      <button type="button" class="loki-search-back-btn" id="lokiSearchBackBtn" hidden>&larr; Back</button>
       <div class="loki-search-results" id="lokiSearchResults">
         <p class="loki-empty">Type a name or pick a date to search.</p>
       </div>

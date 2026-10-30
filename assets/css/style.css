@@ -251,7 +251,7 @@ section { padding: 100px 0; }
 
 /* ---------- About ---------- */
 .about { padding-top: 70px; }
-.about-grid { display: grid; grid-template-columns: 0.9fr 1.1fr; gap: 70px; align-items: center; }
+.about-grid { display: grid; grid-template-columns: 0.9fr 1.1fr; gap: 70px; align-items: center; margin-top: 64px; padding-top: 56px; border-top: 1px solid var(--cream-dark); }
 .about-media { position: relative; height: 420px; }
 .about-tile {
   position: absolute; border-radius: var(--radius-lg);
@@ -278,6 +278,26 @@ section { padding: 100px 0; }
 .feature-list { margin-bottom: 30px; display: grid; gap: 14px; }
 .feature-list li { display: flex; align-items: center; gap: 12px; font-weight: 500; }
 .feature-list i { color: var(--blush-dark); background: #ff3300; border-radius: 50%; width: 26px; height: 26px; padding: 6px; flex-shrink: 0; }
+
+/* ---------- About: Meet Our Doctor ---------- */
+.about-doctor-grid { display: grid; grid-template-columns: 300px 1fr; gap: 56px; align-items: start; margin-top: 12px; }
+.about-doctor-photo { position: relative; }
+.about-doctor-photo img {
+  width: 100%; aspect-ratio: 3 / 4; object-fit: cover; object-position: top center;
+  border-radius: var(--radius-lg); box-shadow: var(--shadow-md); display: block;
+}
+.about-doctor-badge {
+  position: absolute; bottom: -18px; left: -18px;
+  background: var(--white); border-radius: var(--radius-md); box-shadow: var(--shadow-md);
+  padding: 14px 18px; text-align: center; border: 3px solid var(--cream);
+}
+.about-doctor-badge strong { display: block; font-family: var(--font-heading); font-size: 1rem; color: var(--blush-dark); }
+.about-doctor-badge span { font-size: 0.68rem; color: var(--text-light); }
+
+.about-doctor-bio { display: grid; gap: 20px; }
+.about-doctor-bio p { color: var(--text-dark); font-size: 1rem; line-height: 1.85; }
+.about-doctor-bio strong { color: var(--blush-dark); font-weight: 700; }
+.about-doctor-bio em { color: var(--text-dark); font-style: italic; }
 
 /* ---------- Services ---------- */
 .services { background: var(--white); }
@@ -423,11 +443,40 @@ button.contact-card-link { width: 100%; border: none; font: inherit; }
 .contact-cta .btn { display: inline-flex; align-items: center; gap: 10px; }
 .contact-cta .btn i { width: 18px; height: 18px; }
 
+/* ---------- Image Lightbox (scrolling-image carousels) ---------- */
+.img-lightbox-overlay {
+  position: fixed; inset: 0; background: rgba(20, 14, 12, 0.92);
+  display: none; align-items: center; justify-content: center;
+  padding: 40px; z-index: 2000; opacity: 0; transition: opacity 0.3s ease;
+  overscroll-behavior: contain;
+}
+.img-lightbox-overlay.is-open { display: flex; opacity: 1; }
+.img-lightbox-img {
+  max-width: 100%; max-height: 100%; width: auto; height: auto;
+  display: block; border-radius: var(--radius-md); box-shadow: var(--shadow-md);
+  object-fit: contain; transform: scale(0.96); transition: transform 0.3s ease;
+}
+.img-lightbox-overlay.is-open .img-lightbox-img { transform: scale(1); }
+.img-lightbox-close {
+  position: fixed; top: 24px; right: 24px; width: 46px; height: 46px; border-radius: 50%;
+  border: none; background: rgba(255, 255, 255, 0.14); color: var(--white); display: flex;
+  align-items: center; justify-content: center; cursor: pointer; transition: var(--transition);
+  z-index: 2001;
+}
+.img-lightbox-close:hover { background: var(--white); color: var(--text-dark); }
+.img-lightbox-close i { width: 20px; height: 20px; }
+
+@media (max-width: 640px) {
+  .img-lightbox-overlay { padding: 20px; }
+  .img-lightbox-close { top: 14px; right: 14px; width: 40px; height: 40px; }
+}
+
 /* ---------- Message Us Modal ---------- */
 .modal-overlay {
   position: fixed; inset: 0; background: rgba(74, 59, 54, 0.55);
   display: none; align-items: center; justify-content: center;
   padding: 20px; z-index: 1000; opacity: 0; transition: opacity 0.3s ease;
+  overscroll-behavior: contain;
 }
 .modal-overlay.is-open { display: flex; opacity: 1; }
 .modal-box {
@@ -437,7 +486,7 @@ button.contact-card-link { width: 100%; border: none; font: inherit; }
   max-height: 90vh; overflow: hidden; display: flex; flex-direction: column;
 }
 .modal-overlay.is-open .modal-box { transform: translateY(0) scale(1); opacity: 1; }
-.modal-scroll-content { overflow-y: auto; flex: 1 1 auto; min-height: 0; }
+.modal-scroll-content { overflow-y: auto; flex: 1 1 auto; min-height: 0; overscroll-behavior: contain; }
 .modal-close {
   position: absolute; top: 18px; right: 18px; width: 36px; height: 36px; border-radius: 50%;
   border: none; background: var(--cream); color: var(--text-dark); display: flex;
@@ -612,6 +661,8 @@ button.contact-card-link { width: 100%; border: none; font: inherit; }
 @media (max-width: 1024px) {
   .about-grid { grid-template-columns: 1fr; }
   .about-media { margin-bottom: 40px; height: 360px; }
+  .about-doctor-grid { grid-template-columns: 1fr; }
+  .about-doctor-photo { max-width: 280px; margin: 0 auto 46px; }
   .services-grid, .why-grid, .pricing-grid, .team-grid, .contact-info-grid { grid-template-columns: repeat(2, 1fr); }
   .contact-info-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .glimpse-carousel { height: 320px; }

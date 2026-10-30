@@ -402,6 +402,26 @@
     return '';
   }
 
+  // Shared by buildApptRow (main Appointment Section) and
+  // buildSearchResultRow (Cancel/Reschedule search modal) -- a ReScheduled
+  // booking used to just show "Rescheduled as appointment #N" as plain
+  // text; this turns it into a button that jumps straight to that other
+  // booking's own row (opening/using the Cancel/Reschedule search modal,
+  // the one place a single booking's full details -- time, status,
+  // prescription photos, Cancel/Reschedule actions -- are all shown
+  // together) instead of leaving the doctor to go search for it by hand.
+  function buildRescheduledLink(targetId) {
+    var link = document.createElement('button');
+    link.type = 'button';
+    link.className = 'appt-row-rescheduled-link';
+    link.textContent = '\u2192 View Rescheduled Booking';
+    link.addEventListener('click', function (e) {
+      e.stopPropagation();
+      openLokiCancelReschedModalForId(targetId);
+    });
+    return link;
+  }
+
   function buildApptRow(a) {
     // A refresh/reload can happen while the doctor has unsaved edits
     // pending (apptChanges). Re-rendering with the fresh server values
@@ -421,8 +441,8 @@
     var infoHtml = '<strong>' + escapeHtml(a.name || 'Unknown') + '</strong>' +
       '<span>' + escapeHtml(a.phone || '-') + '</span>';
     if (a.email) infoHtml += '<span>' + escapeHtml(a.email) + '</span>';
-    if (a.rescheduledId) infoHtml += '<span class="appt-row-rescheduled-note">&rarr; Rescheduled as appointment #' + escapeHtml(String(a.rescheduledId)) + '</span>';
     info.innerHTML = infoHtml;
+    if (a.rescheduledId) info.appendChild(buildRescheduledLink(a.rescheduledId));
     row.appendChild(info);
 
     var time = document.createElement('div');
@@ -680,7 +700,7 @@
       var photosBtn = document.createElement('button');
       photosBtn.type = 'button';
       photosBtn.className = 'btn btn-outline';
-      photosBtn.textContent = '📷 View Photos (' + m.images.length + ')';
+      photosBtn.textContent = '📷 View All Photos (' + m.images.length + ')';
       photosBtn.addEventListener('click', function () { openPhotosModal(m.images); });
       actions.appendChild(photosBtn);
     }
@@ -713,16 +733,25 @@
   var photosModalOverlay = document.getElementById('photosModalOverlay');
   var closePhotosModalBtn = document.getElementById('closePhotosModal');
   var photosScroll = document.getElementById('photosScroll');
+  var photosModalSub = document.getElementById('photosModalSub');
 
-  function openPhotosModal(images) {
+  // images: array of plain URL strings (Messages: m.images) or
+  // {id, url} objects (Appointments: a.prescriptionImages) -- either
+  // shape works. subtitle/emptyText let callers other than Messages
+  // (e.g. a Finished appointment's prescription photos) show their own
+  // wording instead of the Messages-specific defaults.
+  function openPhotosModal(images, subtitle, emptyText) {
+    if (photosModalSub) photosModalSub.textContent = subtitle || 'Uploaded with this message.';
     photosScroll.innerHTML = '';
     if (!images || !images.length) {
       var empty = document.createElement('p');
       empty.className = 'loki-photos-empty';
-      empty.textContent = 'No photos were uploaded with this message.';
+      empty.textContent = emptyText || 'No photos were uploaded with this message.';
       photosScroll.appendChild(empty);
     } else {
-      images.forEach(function (url) {
+      images.forEach(function (entry) {
+        var url = typeof entry === 'string' ? entry : (entry && entry.url);
+        if (!url) return;
         // Each photo gets its own spinner, shown until that specific image
         // has actually finished loading (photos can take a moment to fetch
         // from Drive, especially the first time) -- not just a single
@@ -1380,7 +1409,19 @@
   var lokiSearchDateInput = document.getElementById('lokiSearchDate');
   var lokiSearchRegexToggle = document.getElementById('lokiSearchRegexToggle');
   var lokiSearchClearBtn = document.getElementById('lokiSearchClearBtn');
+  var lokiSearchBackBtn = document.getElementById('lokiSearchBackBtn');
   var lokiSearchResults = document.getElementById('lokiSearchResults');
+
+  // Lets "View Rescheduled Booking" drill down multiple levels (a booking
+  // rescheduled to another booking that was itself rescheduled again, and
+  // so on) and come back out the same way it went in. Each jump pushes the
+  // search (name/date/regex) the doctor was looking at *before* that jump;
+  // Back pops the most recent one and re-shows it -- ordinary stack
+  // push/pop, not a separate "window" per level.
+  var lokiSearchNavStack = [];
+  function updateLokiSearchBackBtnVisibility() {
+    lokiSearchBackBtn.hidden = !lokiSearchNavStack.length;
+  }
 
   // Same "blank/Past only" rule as the main Cancel Dates section -- an
   // already Cancelled/ReScheduled/Finished booking isn't offered Cancel
@@ -1404,8 +1445,8 @@
     var infoHtml = '<strong>' + escapeHtml(a.name || 'Unknown') + '</strong>' +
       '<span>' + escapeHtml(a.phone || '-') + '</span>' +
       '<span>' + escapeHtml(formatDateHeading(a.date)) + ' \u00b7 ' + escapeHtml(a.timeSlotLabel || '') + '</span>';
-    if (a.rescheduledId) infoHtml += '<span>&rarr; Rescheduled as appointment #' + escapeHtml(String(a.rescheduledId)) + '</span>';
     info.innerHTML = infoHtml;
+    if (a.rescheduledId) info.appendChild(buildRescheduledLink(a.rescheduledId));
     top.appendChild(info);
 
     var statusBadge = document.createElement('span');
@@ -1542,6 +1583,23 @@
       });
       actions.appendChild(reschedBtn);
     }
+    // Finished appointments only -- lets Dr Lokesh/Management pull up the
+    // prescription photos for a completed visit straight from search,
+    // without having to open the Edit Prescription editor just to look.
+    if (a.status === 'Finished' && a.prescriptionImages && a.prescriptionImages.length) {
+      var viewPhotosBtn = document.createElement('button');
+      viewPhotosBtn.type = 'button';
+      viewPhotosBtn.className = 'loki-search-view-photos-btn';
+      viewPhotosBtn.textContent = '📷 View All Photos (' + a.prescriptionImages.length + ')';
+      viewPhotosBtn.addEventListener('click', function () {
+        openPhotosModal(
+          a.prescriptionImages,
+          'Prescription photos · ' + (a.name || 'Unknown') + ' · ' + formatDateHeading(a.date),
+          'No prescription photos for this appointment.'
+        );
+      });
+      actions.appendChild(viewPhotosBtn);
+    }
 
     row.appendChild(actions);
     row.appendChild(cancelPanel);
@@ -1633,6 +1691,8 @@
   }
 
   function openLokiCancelReschedModal() {
+    lokiSearchNavStack = [];
+    updateLokiSearchBackBtnVisibility();
     lokiSearchNameInput.value = '';
     lokiSearchDateInput.value = '';
     if (lokiSearchRegexToggle) lokiSearchRegexToggle.checked = false;
@@ -1658,7 +1718,80 @@
   }
   function closeLokiCancelReschedModal() {
     lokiCancelReschedModalOverlay.classList.remove('is-open');
+    lokiSearchNavStack = [];
+    updateLokiSearchBackBtnVisibility();
   }
+
+  // Opens the Cancel/Reschedule search modal already filtered down to one
+  // specific booking (by id) -- used by the "View Rescheduled Booking"
+  // link instead of leaving the doctor to retype the patient's name/date
+  // themselves. Prefills the same name/date search fields the modal
+  // already offers (rather than a separate one-off detail view), so the
+  // result row that comes back is the exact same row -- with its own
+  // Status row, Cancel/Reschedule actions and View All Photos button --
+  // the modal always shows.
+  function openLokiCancelReschedModalForId(targetId) {
+    // A jump that OPENS the modal (clicked from the main Appointment
+    // Section, modal not up yet) starts a fresh stack -- there's no
+    // meaningful "previous search" beyond the blank state. A jump made
+    // from a result row ALREADY inside the modal keeps whatever stack
+    // built up so far and just adds one more level, so two and three
+    // levels of rescheduling chain Back through correctly.
+    var wasOpen = lokiCancelReschedModalOverlay.classList.contains('is-open');
+    if (!wasOpen) lokiSearchNavStack = [];
+    lokiSearchNavStack.push({
+      name: lokiSearchNameInput.value,
+      date: lokiSearchDateInput.value,
+      useRegex: !!(lokiSearchRegexToggle && lokiSearchRegexToggle.checked)
+    });
+    updateLokiSearchBackBtnVisibility();
+
+    lokiCancelReschedModalOverlay.classList.add('is-open');
+    lokiSearchResults.innerHTML = '';
+    var loadingP = document.createElement('p');
+    loadingP.className = 'loki-empty';
+    loadingP.textContent = 'Loading appointment…';
+    lokiSearchResults.appendChild(loadingP);
+    ensureAppointmentsLoaded(function () {
+      var target = (appointmentsCache || []).filter(function (x) { return String(x.id) === String(targetId); })[0];
+      lokiSearchResults.innerHTML = '';
+      if (target) {
+        lokiSearchNameInput.value = target.name || '';
+        lokiSearchDateInput.value = target.date || '';
+        if (lokiSearchRegexToggle) lokiSearchRegexToggle.checked = false;
+        renderSearchResults();
+      } else {
+        lokiSearchNameInput.value = '';
+        lokiSearchDateInput.value = '';
+        var missingP = document.createElement('p');
+        missingP.className = 'form-status error';
+        missingP.textContent = 'Could not find appointment #' + targetId + '.';
+        lokiSearchResults.appendChild(missingP);
+      }
+    }, function (err) {
+      lokiSearchResults.innerHTML = '';
+      var errP = document.createElement('p');
+      errP.className = 'form-status error';
+      errP.textContent = 'Could not load appointments. ' + (err && err.message ? err.message : '');
+      lokiSearchResults.appendChild(errP);
+    });
+  }
+
+  // Pops the most recent pre-jump search off the stack and re-shows it --
+  // the counterpart to the push in openLokiCancelReschedModalForId, so
+  // repeated clicks walk back out of a multi-level reschedule chain one
+  // level at a time.
+  function lokiSearchGoBack() {
+    if (!lokiSearchNavStack.length) return;
+    var prevState = lokiSearchNavStack.pop();
+    lokiSearchNameInput.value = prevState.name || '';
+    lokiSearchDateInput.value = prevState.date || '';
+    if (lokiSearchRegexToggle) lokiSearchRegexToggle.checked = !!prevState.useRegex;
+    updateLokiSearchBackBtnVisibility();
+    renderSearchResults();
+  }
+  lokiSearchBackBtn.addEventListener('click', lokiSearchGoBack);
+
   document.getElementById('lokiCancelReschedTab').addEventListener('click', openLokiCancelReschedModal);
   closeLokiCancelReschedModalBtn.addEventListener('click', closeLokiCancelReschedModal);
   lokiSearchNameInput.addEventListener('input', renderSearchResults);
@@ -1668,6 +1801,8 @@
     lokiSearchNameInput.value = '';
     lokiSearchDateInput.value = '';
     if (lokiSearchRegexToggle) lokiSearchRegexToggle.checked = false;
+    lokiSearchNavStack = [];
+    updateLokiSearchBackBtnVisibility();
     renderSearchResults();
   });
   var lokiCancelReschedMouseDownOnOverlay = false;
