@@ -202,10 +202,13 @@
       <span class="form-hint" id="prescriptionWordCount">0 / 1000 words</span>
 
       <div class="loki-rx-image-section">
-        <label>Prescription photos <span class="form-optional">(optional, any number)</span></label>
+        <label>Prescription photos &amp; files <span class="form-optional">(optional, any number &mdash; photos, PDF, Word, Excel, PowerPoint)</span></label>
         <div class="loki-rx-image-list" id="prescriptionImageList"></div>
-        <input type="file" id="prescriptionImageAddInput" accept="image/*" hidden>
-        <button type="button" class="btn btn-outline loki-rx-image-add-btn" id="prescriptionImageAddBtn">+ Add Photo</button>
+        <input type="file" id="prescriptionImageAddInput" accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx" hidden>
+        <div class="loki-rx-image-controls">
+          <button type="button" class="btn btn-outline loki-rx-image-add-btn" id="prescriptionImageAddBtn">+ Add Photo / File</button>
+          <button type="button" class="btn btn-outline loki-rx-view-all-btn" id="prescriptionViewAllBtn" hidden>&#128065; View All</button>
+        </div>
       </div>
 
       <button type="submit" class="btn btn-primary btn-block btn-lg">Save Prescription</button>

@@ -550,6 +550,26 @@ function saveImageAndGetUrl_(blob) {
   return 'https://drive.google.com/thumbnail?id=' + file.getId() + '&sz=w4096';
 }
 
+// Like saveImageAndGetUrl_ above, but for Prescription attachments, which
+// can now be any of a small set of supported file types, not just photos
+// (see handleLokiAddPrescriptionImage_). An actual image still gets the
+// thumbnail endpoint -- it serves real image bytes, so it works as an
+// <img src>. Anything else (PDF, Word, Excel, PowerPoint) can't be shown
+// in an <img> tag, so it gets Drive's own in-browser preview URL instead,
+// which still opens the real file directly (no separate download step)
+// and still honors the "anyone with the link" sharing set above.
+function saveRxFileAndGetUrl_(blob, mimeType) {
+  const folder = getOrCreateImageFolder_();
+  const file = folder.createFile(blob);
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+  const isImage = String(mimeType || '').indexOf('image/') === 0;
+  if (isImage) {
+    return 'https://drive.google.com/thumbnail?id=' + file.getId() + '&sz=w4096';
+  }
+  return 'https://drive.google.com/file/d/' + file.getId() + '/preview';
+}
+
 // Reads however many photo0Base64, photo1Base64, ... trios the POST
 // actually sent (any number, up to MAX_PHOTOS_PER_MESSAGE) and saves each
 // to Drive. Replaces the old fixed image/image2/image3/image4 reader —
@@ -1211,6 +1231,23 @@ function extractHyperlinkUrl_(formula) {
   return match ? match[1] : '';
 }
 
+// Prescription attachments store their original filename + mime type as a
+// JSON string in AllImages' AdditionalData column (see
+// handleLokiAddPrescriptionImage_ below). An entry saved before file
+// support shipped just has the plain string "Prescription Photo" there --
+// not valid JSON -- so that (and anything else unparsable) falls back to
+// isImage:true with no stored name: every one of those really was a photo.
+function parseRxAttachmentMeta_(raw) {
+  try {
+    const obj = JSON.parse(raw);
+    if (obj && typeof obj === 'object') {
+      const mime = String(obj.mime || '');
+      return { name: String(obj.name || ''), isImage: mime.indexOf('image/') === 0 || !mime };
+    }
+  } catch (err) { /* pre-existing plain-string entry -- fall through */ }
+  return { name: '', isImage: true };
+}
+
 function getAppointmentsForLoki_() {
   const sheet = getOrCreateAppointmentsSheet_();
   const lastRow = sheet.getLastRow();
@@ -1236,11 +1273,17 @@ function getAppointmentsForLoki_() {
     rescheduledId: row[10] === '' || row[10] === null ? '' : row[10],
     prescription: String(row[11] || ''),
     cancelledReason: String(row[12] || ''),
-    // [{ id, url }, ...] -- id is the AllImages row's own Id, needed so
-    // the Prescription modal's per-photo Remove can target exactly one
-    // photo via handleLokiRemovePrescriptionImage_.
+    // [{ id, url, name, isImage }, ...] -- id is the AllImages row's own
+    // Id, needed so the Prescription modal's per-photo Remove can target
+    // exactly one photo via handleLokiRemovePrescriptionImage_. name/
+    // isImage (from parseRxAttachmentMeta_) let the Prescription modal and
+    // the View Photos gallery tell a PDF/Word/Excel/PowerPoint attachment
+    // apart from an actual photo and render each one appropriately.
     prescriptionImages: getImagesForRow_(imagesIndex, 'BookedAppointments', row[0])
-      .map((img) => ({ id: img.id, url: img.url }))
+      .map((img) => {
+        const meta = parseRxAttachmentMeta_(img.additionalData);
+        return { id: img.id, url: img.url, name: meta.name, isImage: meta.isImage };
+      })
   }));
 }
 
@@ -1402,19 +1445,39 @@ function handleLokiAddPrescriptionImage_(params) {
 
   const base64 = params.imageBase64;
   if (!base64) {
-    return jsonResponse_({ result: 'error', message: 'No image received.' });
+    return jsonResponse_({ result: 'error', message: 'No file received.' });
+  }
+
+  // Photos are always allowed; a fixed allowlist of document types covers
+  // "any other files too like pdf" without opening this up to arbitrary
+  // (and potentially unsafe) uploads.
+  const mimeType = String(params.imageMime || 'image/jpeg');
+  const isImage = mimeType.indexOf('image/') === 0;
+  const ALLOWED_RX_DOC_MIMES_ = {
+    'application/pdf': true,
+    'application/msword': true,
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': true,
+    'application/vnd.ms-excel': true,
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': true,
+    'application/vnd.ms-powerpoint': true,
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation': true
+  };
+  if (!isImage && !ALLOWED_RX_DOC_MIMES_[mimeType]) {
+    return jsonResponse_({ result: 'error', message: "That file type isn't supported. Please upload a photo, PDF, or Word/Excel/PowerPoint document." });
   }
 
   const lock = LockService.getScriptLock();
   lock.tryLock(10000);
 
   try {
-    const blob = buildImageBlob_(base64, params.imageMime, params.imageName);
-    const url = saveImageAndGetUrl_(blob);
-    const imageId = addImageRecord_('BookedAppointments', params.id, url, 'Prescription Photo');
+    const blob = buildImageBlob_(base64, mimeType, params.imageName);
+    const url = saveRxFileAndGetUrl_(blob, mimeType);
+    const fileName = String(params.imageName || (isImage ? 'photo.jpg' : 'file'));
+    const additionalData = JSON.stringify({ name: fileName, mime: mimeType });
+    const imageId = addImageRecord_('BookedAppointments', params.id, url, additionalData);
     logTransactionSafe_('BookedAppointments', params.id, ACTION_ID_MODIFY, actingUser.id,
-      'Prescription photo added');
-    return jsonResponse_({ result: 'success', imageId: imageId, url: url });
+      isImage ? 'Prescription photo added' : 'Prescription file added (' + fileName + ')');
+    return jsonResponse_({ result: 'success', imageId: imageId, url: url, name: fileName, isImage: isImage });
 
   } catch (err) {
     return jsonResponse_({ result: 'error', message: err.message });

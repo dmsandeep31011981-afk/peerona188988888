@@ -752,6 +752,38 @@
       images.forEach(function (entry) {
         var url = typeof entry === 'string' ? entry : (entry && entry.url);
         if (!url) return;
+        // Plain strings (Messages' m.images) and any object without an
+        // explicit isImage are treated as photos, same as always -- only
+        // Prescription attachments carry isImage:false, for a PDF/Word/
+        // Excel/PowerPoint file that can't be shown as an <img>.
+        var isImage = typeof entry === 'string' ? true : (entry && entry.isImage !== false);
+        var name = typeof entry === 'string' ? '' : (entry && entry.name) || '';
+
+        if (!isImage) {
+          var fileWrap = document.createElement('div');
+          fileWrap.className = 'loki-photo-wrap loki-file-wrap';
+          var fileLink = document.createElement('a');
+          fileLink.href = url;
+          fileLink.target = '_blank';
+          fileLink.rel = 'noopener';
+          fileLink.className = 'loki-file-card';
+          var fileIcon = document.createElement('span');
+          fileIcon.className = 'loki-file-icon';
+          fileIcon.textContent = '📄';
+          var fileName = document.createElement('span');
+          fileName.className = 'loki-file-name';
+          fileName.textContent = name || 'Open file';
+          var fileHint = document.createElement('span');
+          fileHint.className = 'loki-file-open-hint';
+          fileHint.textContent = 'Click to open';
+          fileLink.appendChild(fileIcon);
+          fileLink.appendChild(fileName);
+          fileLink.appendChild(fileHint);
+          fileWrap.appendChild(fileLink);
+          photosScroll.appendChild(fileWrap);
+          return;
+        }
+
         // Each photo gets its own spinner, shown until that specific image
         // has actually finished loading (photos can take a moment to fetch
         // from Drive, especially the first time) -- not just a single
@@ -907,7 +939,7 @@
   var prescriptionFormStatus = document.getElementById('prescriptionFormStatus');
   var prescriptionTargetId = null;
 
-  var MAX_PRESCRIPTION_IMAGE_BYTES = 4 * 1024 * 1024; // 4 MB, same cap as the public site's photo uploads
+  var MAX_PRESCRIPTION_FILE_BYTES = 8 * 1024 * 1024; // 8 MB -- admin-only upload, so a bit more headroom than the public site's 4 MB photo cap (scanned PDF reports run larger than phone photos)
 
   function lokiReadFileAsBase64(file) {
     return new Promise(function (resolve, reject) {
@@ -931,10 +963,26 @@
   var rxImageList = document.getElementById('prescriptionImageList');
   var rxImageAddInput = document.getElementById('prescriptionImageAddInput');
   var rxImageAddBtn = document.getElementById('prescriptionImageAddBtn');
+  var prescriptionViewAllBtn = document.getElementById('prescriptionViewAllBtn');
   var rxImages = [];
 
   function rxEntryPreviewSrc(entry) {
     return entry.type === 'existing' ? entry.url : entry.objectUrl;
+  }
+  // Whether this entry is an image (gets a real thumbnail + the photo
+  // lightbox) or some other file type like a PDF/Word/Excel/PowerPoint
+  // doc (gets a file-icon row + opens via a plain link instead). A
+  // pending (just-picked, not yet uploaded) entry reads this straight off
+  // the File object; an existing (already-saved) entry carries it back
+  // from the server (see handleLokiAddPrescriptionImage_ / getAppointmentsForLoki_
+  // in Code.gs) since the File object no longer exists by then.
+  function rxEntryIsImage(entry) {
+    if (entry.type === 'pending') return (entry.file.type || '').indexOf('image/') === 0;
+    return entry.isImage !== false;
+  }
+  function rxEntryName(entry) {
+    if (entry.type === 'pending') return entry.file.name || 'File';
+    return entry.name || 'File';
   }
 
   function rxImagesReset() {
@@ -947,7 +995,7 @@
   function rxImagesShowExisting(images) {
     rxImages.forEach(function (e) { if (e.objectUrl) URL.revokeObjectURL(e.objectUrl); });
     rxImages = (images || []).map(function (img) {
-      return { type: 'existing', id: img.id, url: img.url, pendingRemove: false };
+      return { type: 'existing', id: img.id, url: img.url, name: img.name || '', isImage: img.isImage !== false, pendingRemove: false };
     });
     rxImageAddInput.value = '';
     renderRxImageList();
@@ -956,27 +1004,55 @@
   function renderRxImageList() {
     rxImageList.innerHTML = '';
     var visible = rxImages.filter(function (e) { return e.type === 'pending' || !e.pendingRemove; });
+
+    // "View All" only makes sense once something's actually been added --
+    // hide it the rest of the time rather than opening an empty gallery.
+    if (prescriptionViewAllBtn) {
+      prescriptionViewAllBtn.hidden = !visible.length;
+      prescriptionViewAllBtn.textContent = '👁 View All (' + visible.length + ')';
+    }
+
     if (!visible.length) {
       var empty = document.createElement('p');
       empty.className = 'loki-rx-image-empty';
-      empty.textContent = 'No photos added yet.';
+      empty.textContent = 'No photos or files added yet.';
       rxImageList.appendChild(empty);
       return;
     }
     visible.forEach(function (entry) {
       var row = document.createElement('div');
       row.className = 'loki-rx-image-preview';
+      var isImage = rxEntryIsImage(entry);
 
       var thumbLink = document.createElement('a');
       thumbLink.href = rxEntryPreviewSrc(entry) || '#';
       thumbLink.target = '_blank';
       thumbLink.rel = 'noopener';
       thumbLink.className = 'loki-rx-image-thumb';
-      var img = document.createElement('img');
-      img.src = rxEntryPreviewSrc(entry);
-      img.alt = 'Prescription photo preview';
-      thumbLink.appendChild(img);
+      if (isImage) {
+        var img = document.createElement('img');
+        img.src = rxEntryPreviewSrc(entry);
+        img.alt = 'Prescription photo preview';
+        thumbLink.appendChild(img);
+      } else {
+        // Not a photo -- a PDF/Word/Excel/PowerPoint file. Nothing to
+        // thumbnail, so show a plain file icon with its extension instead
+        // of a broken <img>.
+        thumbLink.classList.add('loki-rx-file-thumb');
+        var ext = (rxEntryName(entry).split('.').pop() || 'FILE').slice(0, 4).toUpperCase();
+        var icon = document.createElement('span');
+        icon.className = 'loki-rx-file-icon';
+        icon.innerHTML = '📄<small>' + ext + '</small>';
+        thumbLink.appendChild(icon);
+      }
       row.appendChild(thumbLink);
+
+      if (!isImage) {
+        var nameEl = document.createElement('span');
+        nameEl.className = 'loki-rx-image-name';
+        nameEl.textContent = rxEntryName(entry);
+        row.appendChild(nameEl);
+      }
 
       var actions = document.createElement('div');
       actions.className = 'loki-rx-image-actions';
@@ -987,7 +1063,7 @@
       viewBtn.textContent = 'View';
       viewBtn.addEventListener('click', function () {
         var src = rxEntryPreviewSrc(entry);
-        if (src) openPhotosModal([src]);
+        if (src) openPhotosModal([{ url: src, name: rxEntryName(entry), isImage: isImage }]);
       });
       actions.appendChild(viewBtn);
 
@@ -1021,8 +1097,8 @@
     var file = rxImageAddInput.files && rxImageAddInput.files[0];
     rxImageAddInput.value = ''; // allow picking the same file again later
     if (!file) return;
-    if (file.size > MAX_PRESCRIPTION_IMAGE_BYTES) {
-      prescriptionFormStatus.textContent = 'That photo is over 4 MB — please choose a smaller image.';
+    if (file.size > MAX_PRESCRIPTION_FILE_BYTES) {
+      prescriptionFormStatus.textContent = 'That file is over 8 MB — please choose a smaller file.';
       prescriptionFormStatus.className = 'form-status error';
       return;
     }
@@ -1030,6 +1106,17 @@
     prescriptionFormStatus.className = 'form-status';
     rxImages.push({ type: 'pending', file: file, objectUrl: URL.createObjectURL(file) });
     renderRxImageList();
+  });
+
+  // Opens every current photo/file (saved + just-picked, minus anything
+  // marked for removal) together in the same scrollable gallery used
+  // elsewhere in this page, instead of having to View them one at a time.
+  prescriptionViewAllBtn.addEventListener('click', function () {
+    var visible = rxImages.filter(function (e) { return e.type === 'pending' || !e.pendingRemove; });
+    var items = visible.map(function (entry) {
+      return { url: rxEntryPreviewSrc(entry), name: rxEntryName(entry), isImage: rxEntryIsImage(entry) };
+    });
+    openPhotosModal(items, 'Prescription photos & files', 'No photos or files added yet.');
   });
 
   function updatePrescriptionWordCount() {
@@ -1088,11 +1175,11 @@
       })
       .then(function (res) { return res.json(); })
       .then(function (data) {
-        if (data.result !== 'success') throw new Error(data.message || 'Could not save that photo.');
-        return { ok: true, kind: 'add', entry: entry, id: data.imageId, url: data.url || '' };
+        if (data.result !== 'success') throw new Error(data.message || 'Could not save that file.');
+        return { ok: true, kind: 'add', entry: entry, id: data.imageId, url: data.url || '', name: data.name || '', isImage: data.isImage !== false };
       })
       .catch(function (err) {
-        return { ok: false, kind: 'add', entry: entry, message: err && err.message ? err.message : 'Could not save that photo.' };
+        return { ok: false, kind: 'add', entry: entry, message: err && err.message ? err.message : 'Could not save that file.' };
       });
   }
 
@@ -1178,7 +1265,7 @@
             var addIdx = rxImages.indexOf(r.entry);
             if (addIdx !== -1) {
               if (r.entry.objectUrl) URL.revokeObjectURL(r.entry.objectUrl);
-              rxImages[addIdx] = { type: 'existing', id: r.id, url: r.url, pendingRemove: false };
+              rxImages[addIdx] = { type: 'existing', id: r.id, url: r.url, name: r.name, isImage: r.isImage, pendingRemove: false };
             }
           } else if (r.kind === 'remove') {
             var removeIdx = rxImages.indexOf(r.entry);
@@ -1189,7 +1276,7 @@
         if (a) {
           a.prescriptionImages = rxImages
             .filter(function (e) { return e.type === 'existing'; })
-            .map(function (e) { return { id: e.id, url: e.url }; });
+            .map(function (e) { return { id: e.id, url: e.url, name: e.name || '', isImage: e.isImage !== false }; });
         }
 
         if (failures.length) {

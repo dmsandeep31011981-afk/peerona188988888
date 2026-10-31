@@ -161,7 +161,13 @@ html, body { overflow-x: visible; }
    images are shown as large as the window allows (not shrunk to a small
    fixed box) and are each a click-through to the original full-resolution
    file in a new tab for pixel-level zooming. */
-.loki-photos-box { max-width: 1200px; width: 94vw; max-height: 94vh; padding: 32px 28px; }
+/* width is a % of .modal-overlay's own (already-padded) content box, same
+   as every other .modal-box on the site -- NOT a vw unit, which ignores
+   the overlay's 20px side padding (style.css) and overflowed the viewport
+   on a phone as a result (confirmed independent of this file's own
+   Prescription-modal changes: it reproduced on the unmodified original
+   too, at any screen under ~420px wide). */
+.loki-photos-box { max-width: 1200px; width: 100%; max-height: 94vh; padding: 32px 28px; }
 .loki-photos-scroll { display: flex; flex-direction: column; gap: 24px; max-height: calc(94vh - 130px); }
 .loki-photos-scroll a { display: block; cursor: zoom-in; }
 .loki-photos-scroll img { width: 100%; height: auto; display: block; border-radius: var(--radius-sm); box-shadow: var(--shadow-sm); }
@@ -182,6 +188,21 @@ html, body { overflow-x: visible; }
 .loki-photo-wrap.is-loaded .loki-spinner,
 .loki-photo-wrap.is-error .loki-spinner { display: none; }
 .loki-photo-error { display: block; text-align: center; padding: 30px 10px; color: var(--text-light); font-size: 0.85rem; }
+
+/* A non-photo Prescription attachment (PDF/Word/Excel/PowerPoint) shown in
+   the same vertical, scrollable gallery as photos -- a file card instead
+   of an image, since it can't be rendered as one. Clicking it opens
+   Drive's own in-browser preview for that file type in a new tab. */
+.loki-file-wrap { min-height: 0; }
+.loki-file-card {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 28px 20px; border-radius: var(--radius-md); background: var(--cream);
+  border: 1.5px dashed #e9ddd6; text-decoration: none; transition: var(--transition);
+}
+.loki-file-card:hover { background: var(--blush-light); border-color: var(--blush-dark); }
+.loki-file-icon { font-size: 2.4rem; line-height: 1; }
+.loki-file-name { font-weight: 600; color: var(--text-dark); font-size: 0.92rem; word-break: break-word; text-align: center; }
+.loki-file-open-hint { font-size: 0.76rem; color: var(--text-light); }
 
 /* ---------- Circular progress / loading spinner ---------- */
 /* Brand-compatible: the faint track and spinning arc both use the site's
@@ -220,7 +241,7 @@ html, body { overflow-x: visible; }
 .loki-subtabs .loki-refresh-btn { margin-left: auto; }
 
 @media (max-width: 700px) {
-  .loki-photos-box { width: 96vw; padding: 24px 16px; }
+  .loki-photos-box { padding: 24px 16px; }
 }
 
 /* ---------- Appointment row controls (status + reason + prescription) ---------- */
@@ -302,7 +323,12 @@ html, body { overflow-x: visible; }
 .loki-rx-image-section { margin-top: 14px; display: flex; flex-direction: column; gap: 10px; }
 .loki-rx-image-list { display: flex; flex-direction: column; gap: 10px; }
 .loki-rx-image-empty { font-size: 0.86rem; color: var(--text-light); margin: 0; }
-.loki-rx-image-add-btn { align-self: flex-start; padding: 9px 18px; font-size: 0.84rem; }
+.loki-rx-image-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.loki-rx-image-add-btn, .loki-rx-view-all-btn { padding: 9px 18px; font-size: 0.84rem; }
+/* Same [hidden]-vs-class-display precedence issue as .loki-search-back-btn
+   elsewhere in this file: .btn sets its own `display`, which otherwise
+   beats the browser's default `[hidden] { display: none }`. */
+.loki-rx-view-all-btn[hidden] { display: none; }
 .loki-rx-image-preview {
   display: flex; align-items: center; gap: 10px; padding: 8px 10px;
   background: var(--cream); border-radius: var(--radius-sm);
@@ -312,6 +338,21 @@ html, body { overflow-x: visible; }
   display: block; border: 1.5px solid #e9ddd6;
 }
 .loki-rx-image-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* A non-photo attachment (PDF/Word/Excel/PowerPoint) has nothing to
+   thumbnail, so this fills the same 52x52 slot with a file icon + short
+   extension label instead of a broken <img>. */
+.loki-rx-file-thumb {
+  background: var(--white); display: flex; align-items: center; justify-content: center;
+}
+.loki-rx-file-icon {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  font-size: 1.3rem; line-height: 1; color: var(--text-light);
+}
+.loki-rx-file-icon small { font-size: 0.56rem; font-weight: 700; letter-spacing: 0.3px; margin-top: 3px; color: var(--blush-dark); }
+.loki-rx-image-name {
+  font-size: 0.86rem; color: var(--text-dark); overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; max-width: 220px;
+}
 .loki-rx-image-actions { margin-left: auto; flex-shrink: 0; display: flex; gap: 8px; }
 .loki-rx-image-view {
   padding: 7px 14px; font-size: 0.78rem; font-weight: 600;
