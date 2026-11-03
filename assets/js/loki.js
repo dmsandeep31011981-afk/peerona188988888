@@ -68,6 +68,22 @@
     return trimmed ? trimmed.split(/\s+/).length : 0;
   }
 
+  // Phone/tablet check used to decide whether to show the "Take Photo"
+  // camera-capture button on the Prescription form -- desktop browsers
+  // ignore the capture attribute anyway, so showing it there would just be
+  // a second, confusing copy of the regular file picker.
+  function isMobileOrTabletDevice() {
+    var ua = (navigator.userAgent || navigator.vendor || '') + '';
+    if (/Mobi|Android|iPhone|iPad|iPod|Tablet|Silk|Kindle|PlayBook/i.test(ua)) return true;
+    // iPadOS 13+ reports its UA as a plain desktop Mac, so fall back to a
+    // touch-capability check for that case.
+    if (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1) return true;
+    try {
+      if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches && navigator.maxTouchPoints > 0) return true;
+    } catch (e) { /* matchMedia not available -- ignore */ }
+    return false;
+  }
+
   /* ---------- circular progress / loading spinner (reused everywhere data
      is fetched from the sheet, and for each photo while it loads) ---------- */
   function createSpinner(extraClass) {
@@ -270,6 +286,8 @@
   var apptNextBtn = document.getElementById('apptNextBtn');
   var apptTodayBtn = document.getElementById('apptTodayBtn');
   var apptRefreshBtn = document.getElementById('apptRefreshBtn');
+  var apptSortSelect = document.getElementById('apptSortSelect');
+  var apptSortOrderSelect = document.getElementById('apptSortOrderSelect');
   var apptSaveBar = document.getElementById('apptSaveBar');
   var apptSaveCount = document.getElementById('apptSaveCount');
   var apptSaveBtn = document.getElementById('apptSaveBtn');
@@ -277,6 +295,8 @@
 
   var appointmentsCache = null; // array, fetched once per unlock (or forced refresh)
   var apptWindowStart = startOfToday(); // appointments default forward: today .. +6
+  var apptSortBy = 'date'; // 'date' (grouped, default) | 'name' | 'status' -- see renderAppointments
+  var apptSortOrder = 'asc'; // 'asc' (default) | 'desc' -- see renderAppointments
   var apptChanges = {}; // id -> partial change object, e.g. { status: 'Cancelled', cancelledReason: '...' }
   var APPT_STATUS_VALUES = ['', 'Cancelled', 'ReScheduled', 'Finished', 'Past'];
   var APPT_STATUS_LABELS = { '': 'Upcoming', 'Cancelled': 'Cancelled', 'ReScheduled': 'ReScheduled', 'Finished': 'Finished', 'Past': 'Past' };
@@ -360,23 +380,49 @@
     var windowEnd = addDays(apptWindowStart, WINDOW_DAYS - 1);
     apptRangeLabel.textContent = formatRangeLabel(apptWindowStart, windowEnd);
 
-    var byDate = {};
-    (appointmentsCache || []).forEach(function (a) {
+    var inWindow = (appointmentsCache || []).filter(function (a) {
       var d = parseDateStr(a.date);
-      if (d < apptWindowStart || d > windowEnd) return;
-      (byDate[a.date] = byDate[a.date] || []).push(a);
+      return d >= apptWindowStart && d <= windowEnd;
     });
 
-    var dateKeys = Object.keys(byDate).sort();
     apptList.innerHTML = '';
 
-    if (!dateKeys.length) {
+    if (!inWindow.length) {
       var empty = document.createElement('p');
       empty.className = 'loki-empty';
       empty.textContent = 'No appointments in this range.';
       apptList.appendChild(empty);
       return;
     }
+
+    var orderSign = apptSortOrder === 'desc' ? -1 : 1;
+
+    if (apptSortBy === 'name' || apptSortBy === 'status') {
+      // Flat list (no date-group headers to lean on), so each row shows
+      // its own date alongside the time -- see buildApptRow's showDate.
+      var sorted = inWindow.slice().sort(function (a, b) {
+        if (apptSortBy === 'name') {
+          return orderSign * (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+        }
+        var sa = APPT_STATUS_LABELS[a.status || ''] || (a.status || '');
+        var sb = APPT_STATUS_LABELS[b.status || ''] || (b.status || '');
+        if (sa !== sb) return orderSign * sa.localeCompare(sb);
+        // Same status -- keep it readable with date/time as the tiebreaker
+        // (always chronological, regardless of the Ascending/Descending
+        // choice, which applies to the primary sort field only).
+        return (a.date + a.startTime).localeCompare(b.date + b.startTime);
+      });
+      sorted.forEach(function (a) { apptList.appendChild(buildApptRow(a, { showDate: true })); });
+      return;
+    }
+
+    // Default: group by date (as before), sorted by time within each day.
+    // Ascending/Descending flips which day comes first; times within a day
+    // always run in natural (earliest-first) order.
+    var byDate = {};
+    inWindow.forEach(function (a) { (byDate[a.date] = byDate[a.date] || []).push(a); });
+    var dateKeys = Object.keys(byDate).sort();
+    if (apptSortOrder === 'desc') dateKeys.reverse();
 
     dateKeys.forEach(function (dateKey) {
       var group = document.createElement('div');
@@ -422,7 +468,7 @@
     return link;
   }
 
-  function buildApptRow(a) {
+  function buildApptRow(a, opts) {
     // A refresh/reload can happen while the doctor has unsaved edits
     // pending (apptChanges). Re-rendering with the fresh server values
     // would silently wipe those edits out of view, so any field that has
@@ -447,7 +493,13 @@
 
     var time = document.createElement('div');
     time.className = 'appt-row-time';
-    time.textContent = a.timeSlotLabel || '';
+    // When this row is shown in a flat, non-date-grouped list (sorted by
+    // Name or Status), there's no date-group heading to lean on, so fold
+    // the date into this row too -- same "<date> · <time>" shape already
+    // used for a row's date/time in the Cancel/Reschedule search results.
+    time.textContent = (opts && opts.showDate)
+      ? formatDateHeading(a.date) + ' · ' + (a.timeSlotLabel || '')
+      : (a.timeSlotLabel || '');
     row.appendChild(time);
 
     var controls = document.createElement('div');
@@ -462,11 +514,28 @@
       opt.textContent = APPT_STATUS_LABELS[value];
       statusSelect.appendChild(opt);
     });
+    // Small per-row Save button -- only shown once this row actually has a
+    // pending edit, so the doctor can save right from the row they just
+    // changed instead of having to find the Save Changes bar. It triggers
+    // the exact same save as that bar (every pending change, not just this
+    // row's), via the shared triggerApptSave() below.
+    var rowSaveBtn = document.createElement('button');
+    rowSaveBtn.type = 'button';
+    rowSaveBtn.className = 'appt-row-save-btn';
+    rowSaveBtn.textContent = 'Save';
+    rowSaveBtn.hidden = !Object.prototype.hasOwnProperty.call(apptChanges, a.id);
+    rowSaveBtn.addEventListener('click', function () { triggerApptSave(); });
+
     statusSelect.value = displayStatus;
     statusSelect.addEventListener('change', function () {
       row.className = 'appt-row' + apptRowStatusClass(statusSelect.value);
       setApptChangeField(a.id, 'status', statusSelect.value, a.status || '');
       updateApptSaveBar();
+      rowSaveBtn.hidden = !Object.prototype.hasOwnProperty.call(apptChanges, a.id);
+      // The Finished -> offer-the-prescription prompt fires from the Save
+      // Changes button instead of here -- see apptSaveBtn's click handler
+      // below -- so it only appears once the change is actually about to
+      // be persisted, not on every dropdown selection.
     });
     statusWrap.appendChild(statusSelect);
     controls.appendChild(statusWrap);
@@ -481,9 +550,12 @@
     reasonSelect.addEventListener('change', function () {
       setApptChangeField(a.id, 'cancelledReason', reasonSelect.value, a.cancelledReason || '');
       updateApptSaveBar();
+      rowSaveBtn.hidden = !Object.prototype.hasOwnProperty.call(apptChanges, a.id);
     });
     reasonWrap.appendChild(reasonSelect);
     controls.appendChild(reasonWrap);
+
+    controls.appendChild(rowSaveBtn);
 
     var prescriptionBtn = document.createElement('button');
     prescriptionBtn.type = 'button';
@@ -501,23 +573,30 @@
     var keys = Object.keys(apptChanges);
     apptSaveBar.hidden = keys.length === 0;
     apptSaveCount.textContent = keys.length + (keys.length === 1 ? ' change' : ' changes');
+    // Belt-and-braces alongside the hide-when-empty above: with no pending
+    // changes the button itself is disabled too, not just out of view.
+    apptSaveBtn.disabled = keys.length === 0;
   }
 
-  apptSaveBtn.addEventListener('click', function () {
-    var keys = Object.keys(apptChanges);
-    if (!keys.length) return;
-
-    apptSaveBtn.disabled = true;
-    apptSaveBtn.textContent = 'Saving…';
-    apptSavingOverlay.classList.add('is-active');
-
-    var changesPayload = keys.map(function (id) {
-      var entry = apptChanges[id];
-      var payload = { id: id };
-      if (Object.prototype.hasOwnProperty.call(entry, 'status')) payload.status = entry.status;
-      if (Object.prototype.hasOwnProperty.call(entry, 'cancelledReason')) payload.cancelledReason = entry.cancelledReason;
-      return payload;
+  // Disables/re-enables the bottom Save Changes button together with every
+  // currently-visible per-row Save button (there can be several, one per
+  // edited row), so a click on any one of them can't be double-fired while
+  // a save triggered from any other one is already in flight.
+  function setApptSaveButtonsBusy(busy) {
+    apptSaveBtn.disabled = busy;
+    apptSaveBtn.textContent = busy ? 'Saving…' : 'Save Changes';
+    Array.prototype.forEach.call(document.querySelectorAll('.appt-row-save-btn'), function (btn) {
+      btn.disabled = busy;
     });
+  }
+
+  // The actual network save -- pulled out of the click handler so the
+  // Finished -> prescription prompt can run first and only call this once
+  // the doctor is done with the prescription modal (or call it straight
+  // away, unchanged, when nothing in this batch needs that prompt).
+  function performApptSave(changesPayload) {
+    setApptSaveButtonsBusy(true);
+    apptSavingOverlay.classList.add('is-active');
 
     var fd = new FormData();
     fd.append('action', 'lokiSaveApptStatus');
@@ -550,11 +629,54 @@
         apptStatus.className = 'form-status error';
       })
       .finally(function () {
-        apptSaveBtn.disabled = false;
-        apptSaveBtn.textContent = 'Save Changes';
+        setApptSaveButtonsBusy(false);
+        // Re-sync the bottom button's disabled state with however many
+        // changes are actually still pending -- none left after a success
+        // (already zeroed above), whatever was left as-is after an error.
+        updateApptSaveBar();
         apptSavingOverlay.classList.remove('is-active');
       });
-  });
+  }
+
+  // Shared by the bottom Save Changes button and every row's own small Save
+  // button -- either one saves the full set of pending changes, not just
+  // the row that was clicked from.
+  function triggerApptSave() {
+    var keys = Object.keys(apptChanges);
+    if (!keys.length) return;
+
+    var changesPayload = keys.map(function (id) {
+      var entry = apptChanges[id];
+      var payload = { id: id };
+      if (Object.prototype.hasOwnProperty.call(entry, 'status')) payload.status = entry.status;
+      if (Object.prototype.hasOwnProperty.call(entry, 'cancelledReason')) payload.cancelledReason = entry.cancelledReason;
+      return payload;
+    });
+
+    // Anything in this batch newly being set to Finished (not already
+    // Finished before this edit) gets offered the prescription modal
+    // first, on top of whatever's currently open -- the actual save only
+    // goes to the server once every such prompt has been closed, so
+    // "Finished" isn't persisted until the doctor's had the chance to add
+    // the prescription that goes with it.
+    var newlyFinishedIds = changesPayload
+      .filter(function (c) {
+        if (!Object.prototype.hasOwnProperty.call(c, 'status') || c.status !== 'Finished') return false;
+        var a = appointmentsCache.filter(function (x) { return String(x.id) === String(c.id); })[0];
+        return a && (a.status || '') !== 'Finished';
+      })
+      .map(function (c) { return c.id; });
+
+    setApptSaveButtonsBusy(true); // guard against a double-click (from either button) while a prescription prompt is up
+
+    if (newlyFinishedIds.length) {
+      promptPrescriptionsForIdsThen(newlyFinishedIds, function () { performApptSave(changesPayload); });
+    } else {
+      performApptSave(changesPayload);
+    }
+  }
+
+  apptSaveBtn.addEventListener('click', triggerApptSave);
 
   apptToggle.addEventListener('click', function () {
     var expanded = apptToggle.getAttribute('aria-expanded') === 'true';
@@ -564,10 +686,30 @@
     // don't leave it wherever a previous Earlier/Later click left off.
     if (!expanded) { apptWindowStart = startOfToday(); loadAppointments(); }
   });
-  apptPrevBtn.addEventListener('click', function () { apptWindowStart = addDays(apptWindowStart, -WINDOW_DAYS); reloadAppointments(); });
-  apptNextBtn.addEventListener('click', function () { apptWindowStart = addDays(apptWindowStart, WINDOW_DAYS); reloadAppointments(); });
-  apptTodayBtn.addEventListener('click', function () { apptWindowStart = startOfToday(); reloadAppointments(); });
-  apptRefreshBtn.addEventListener('click', function () { startRefreshSpin(apptRefreshBtn); reloadAppointments(apptRefreshBtn); });
+  // Earlier/Today/Later/Refresh all load a different (or refreshed) set of
+  // appointments, so any Sort by/Order the doctor had picked for the old
+  // list is reset back to the default (grouped by Date, Ascending) rather
+  // than silently carrying over to data it was never chosen for.
+  function resetApptSort() {
+    apptSortBy = 'date';
+    apptSortOrder = 'asc';
+    apptSortSelect.value = 'date';
+    apptSortOrderSelect.value = 'asc';
+  }
+  apptPrevBtn.addEventListener('click', function () { apptWindowStart = addDays(apptWindowStart, -WINDOW_DAYS); resetApptSort(); reloadAppointments(); });
+  apptNextBtn.addEventListener('click', function () { apptWindowStart = addDays(apptWindowStart, WINDOW_DAYS); resetApptSort(); reloadAppointments(); });
+  apptTodayBtn.addEventListener('click', function () { apptWindowStart = startOfToday(); resetApptSort(); reloadAppointments(); });
+  apptRefreshBtn.addEventListener('click', function () { resetApptSort(); startRefreshSpin(apptRefreshBtn); reloadAppointments(apptRefreshBtn); });
+  // Just re-orders what's already loaded for the current date window --
+  // no need to go back to the server for this.
+  apptSortSelect.addEventListener('change', function () {
+    apptSortBy = apptSortSelect.value;
+    renderAppointments();
+  });
+  apptSortOrderSelect.addEventListener('change', function () {
+    apptSortOrder = apptSortOrderSelect.value;
+    renderAppointments();
+  });
 
   /* ---------- Messages Section ---------- */
   var msgToggle = document.getElementById('msgToggle');
@@ -579,12 +721,16 @@
   var msgNextBtn = document.getElementById('msgNextBtn');
   var msgTodayBtn = document.getElementById('msgTodayBtn');
   var msgRefreshBtn = document.getElementById('msgRefreshBtn');
+  var msgSortSelect = document.getElementById('msgSortSelect');
+  var msgSortOrderSelect = document.getElementById('msgSortOrderSelect');
 
   var messagesCache = null;
   // Messages are historical (received in the past), so default to a
   // trailing window ending today, rather than looking forward like
   // appointments do.
   var msgWindowStart = addDays(startOfToday(), -(WINDOW_DAYS - 1));
+  var msgSortBy = 'date'; // 'date' (grouped, default) | 'name' | 'status' -- see renderMessages
+  var msgSortOrder = 'asc'; // 'asc' (default) | 'desc' -- see renderMessages
 
   // Always pulls fresh data from the sheet and overwrites messagesCache --
   // mirrors fetchAppointments(), used by Earlier/Today/Later and Refresh.
@@ -631,25 +777,54 @@
     var windowEnd = addDays(msgWindowStart, WINDOW_DAYS - 1);
     msgRangeLabel.textContent = formatRangeLabel(msgWindowStart, windowEnd);
 
-    var byDate = {};
+    var inWindow = [];
     (messagesCache || []).forEach(function (m) {
       var dateKey = istDateKeyFromIso(m.timestamp);
       if (!dateKey) return;
       var d = parseDateStr(dateKey);
       if (d < msgWindowStart || d > windowEnd) return;
-      (byDate[dateKey] = byDate[dateKey] || []).push(m);
+      inWindow.push({ m: m, dateKey: dateKey });
     });
 
-    var dateKeys = Object.keys(byDate).sort();
     msgList.innerHTML = '';
 
-    if (!dateKeys.length) {
+    if (!inWindow.length) {
       var empty = document.createElement('p');
       empty.className = 'loki-empty';
       empty.textContent = 'No messages in this range.';
       msgList.appendChild(empty);
       return;
     }
+
+    var orderSign = msgSortOrder === 'desc' ? -1 : 1;
+
+    if (msgSortBy === 'name' || msgSortBy === 'status') {
+      // Flat list -- no date-group headers here, so each card shows its
+      // own date alongside the time (see buildMsgCard's showDate).
+      var sorted = inWindow.slice().sort(function (x, y) {
+        if (msgSortBy === 'name') {
+          return orderSign * (x.m.name || '').localeCompare(y.m.name || '', undefined, { sensitivity: 'base' });
+        }
+        // "Status" for a message = whether it's been replied to yet.
+        var sx = x.m.inlineReply ? 'Replied' : 'Not Replied';
+        var sy = y.m.inlineReply ? 'Replied' : 'Not Replied';
+        if (sx !== sy) return orderSign * sx.localeCompare(sy);
+        // Same status -- keep it readable with date/time as the tiebreaker
+        // (always chronological, regardless of the Ascending/Descending
+        // choice, which applies to the primary sort field only).
+        return (x.dateKey + x.m.timestamp).localeCompare(y.dateKey + y.m.timestamp);
+      });
+      sorted.forEach(function (x) { msgList.appendChild(buildMsgCard(x.m, { showDate: true, dateKey: x.dateKey })); });
+      return;
+    }
+
+    // Default: group by date (as before), sorted by time within each day.
+    // Ascending/Descending flips which day comes first; times within a day
+    // always run in natural (earliest-first) order.
+    var byDate = {};
+    inWindow.forEach(function (x) { (byDate[x.dateKey] = byDate[x.dateKey] || []).push(x.m); });
+    var dateKeys = Object.keys(byDate).sort();
+    if (msgSortOrder === 'desc') dateKeys.reverse();
 
     dateKeys.forEach(function (dateKey) {
       var group = document.createElement('div');
@@ -667,15 +842,18 @@
     });
   }
 
-  function buildMsgCard(m) {
+  function buildMsgCard(m, opts) {
     var card = document.createElement('div');
     card.className = 'msg-card';
 
     var head = document.createElement('div');
     head.className = 'msg-card-head';
+    var whenLabel = (opts && opts.showDate)
+      ? formatDateHeading(opts.dateKey) + ' · ' + formatIstTime(m.timestamp)
+      : formatIstTime(m.timestamp);
     head.innerHTML =
       '<strong>' + escapeHtml(m.name || 'Unknown') + ' &middot; ' + escapeHtml(m.phone || '-') + '</strong>' +
-      '<span>' + escapeHtml(formatIstTime(m.timestamp)) + '</span>';
+      '<span>' + escapeHtml(whenLabel) + '</span>';
     card.appendChild(head);
 
     var body = document.createElement('div');
@@ -724,10 +902,26 @@
     // every time this section is (re)opened.
     if (!expanded) { msgWindowStart = addDays(startOfToday(), -(WINDOW_DAYS - 1)); loadMessages(); }
   });
-  msgPrevBtn.addEventListener('click', function () { msgWindowStart = addDays(msgWindowStart, -WINDOW_DAYS); reloadMessages(); });
-  msgNextBtn.addEventListener('click', function () { msgWindowStart = addDays(msgWindowStart, WINDOW_DAYS); reloadMessages(); });
-  msgTodayBtn.addEventListener('click', function () { msgWindowStart = addDays(startOfToday(), -(WINDOW_DAYS - 1)); reloadMessages(); });
-  msgRefreshBtn.addEventListener('click', function () { startRefreshSpin(msgRefreshBtn); reloadMessages(msgRefreshBtn); });
+  // Same reasoning as resetApptSort() -- a new/refreshed window of messages
+  // shouldn't silently keep whatever Sort by/Order was picked before.
+  function resetMsgSort() {
+    msgSortBy = 'date';
+    msgSortOrder = 'asc';
+    msgSortSelect.value = 'date';
+    msgSortOrderSelect.value = 'asc';
+  }
+  msgPrevBtn.addEventListener('click', function () { msgWindowStart = addDays(msgWindowStart, -WINDOW_DAYS); resetMsgSort(); reloadMessages(); });
+  msgNextBtn.addEventListener('click', function () { msgWindowStart = addDays(msgWindowStart, WINDOW_DAYS); resetMsgSort(); reloadMessages(); });
+  msgTodayBtn.addEventListener('click', function () { msgWindowStart = addDays(startOfToday(), -(WINDOW_DAYS - 1)); resetMsgSort(); reloadMessages(); });
+  msgRefreshBtn.addEventListener('click', function () { resetMsgSort(); startRefreshSpin(msgRefreshBtn); reloadMessages(msgRefreshBtn); });
+  msgSortOrderSelect.addEventListener('change', function () {
+    msgSortOrder = msgSortOrderSelect.value;
+    renderMessages();
+  });
+  msgSortSelect.addEventListener('change', function () {
+    msgSortBy = msgSortSelect.value;
+    renderMessages();
+  });
 
   /* ---------- Photos modal ---------- */
   var photosModalOverlay = document.getElementById('photosModalOverlay');
@@ -938,6 +1132,13 @@
   var prescriptionWordCount = document.getElementById('prescriptionWordCount');
   var prescriptionFormStatus = document.getElementById('prescriptionFormStatus');
   var prescriptionTargetId = null;
+  // When the "mark Finished -> offer the prescription" flow opens this
+  // modal on someone's behalf (see apptSaveBtn / searchStatusSaveBtn), it
+  // registers the actual deferred save here so closePrescriptionModal can
+  // fire it once the doctor is done -- covers every way the modal can
+  // close (Save Prescription's own auto-close, the X button, or clicking
+  // the backdrop) without duplicating that logic in each place.
+  var prescriptionModalCloseCallback = null;
 
   var MAX_PRESCRIPTION_FILE_BYTES = 8 * 1024 * 1024; // 8 MB -- admin-only upload, so a bit more headroom than the public site's 4 MB photo cap (scanned PDF reports run larger than phone photos)
 
@@ -1092,10 +1293,9 @@
     });
   }
 
-  rxImageAddBtn.addEventListener('click', function () { rxImageAddInput.click(); });
-  rxImageAddInput.addEventListener('change', function () {
-    var file = rxImageAddInput.files && rxImageAddInput.files[0];
-    rxImageAddInput.value = ''; // allow picking the same file again later
+  // Shared by the regular file picker and the camera-capture input below --
+  // same size check and same push into the pending-files list either way.
+  function handleRxFilePicked(file) {
     if (!file) return;
     if (file.size > MAX_PRESCRIPTION_FILE_BYTES) {
       prescriptionFormStatus.textContent = 'That file is over 8 MB — please choose a smaller file.';
@@ -1106,7 +1306,32 @@
     prescriptionFormStatus.className = 'form-status';
     rxImages.push({ type: 'pending', file: file, objectUrl: URL.createObjectURL(file) });
     renderRxImageList();
+  }
+
+  rxImageAddBtn.addEventListener('click', function () { rxImageAddInput.click(); });
+  rxImageAddInput.addEventListener('change', function () {
+    var file = rxImageAddInput.files && rxImageAddInput.files[0];
+    rxImageAddInput.value = ''; // allow picking the same file again later
+    handleRxFilePicked(file);
   });
+
+  // "Take Photo" -- a second input with capture="environment" so mobile
+  // and tablet browsers open the camera directly instead of the regular
+  // file/gallery picker. Desktop browsers ignore the capture attribute
+  // (it would just behave like a second, redundant file picker there), so
+  // the button itself is only shown on touch devices -- see
+  // isMobileOrTabletDevice() near the top of this file.
+  var rxCameraBtn = document.getElementById('prescriptionCameraBtn');
+  var rxCameraInput = document.getElementById('prescriptionCameraInput');
+  if (rxCameraBtn && rxCameraInput) {
+    rxCameraBtn.hidden = !isMobileOrTabletDevice();
+    rxCameraBtn.addEventListener('click', function () { rxCameraInput.click(); });
+    rxCameraInput.addEventListener('change', function () {
+      var file = rxCameraInput.files && rxCameraInput.files[0];
+      rxCameraInput.value = '';
+      handleRxFilePicked(file);
+    });
+  }
 
   // Opens every current photo/file (saved + just-picked, minus anything
   // marked for removal) together in the same scrollable gallery used
@@ -1126,6 +1351,25 @@
   }
   prescriptionTextarea.addEventListener('input', updatePrescriptionWordCount);
 
+  // Shared by the main Appointments list and the Cancel/Reschedule search
+  // modal: shows the Prescription modal, in turn, for each appointment id
+  // that's about to become Finished, then calls afterAll() once the last
+  // one has been closed. Almost always a queue of one -- the "several at
+  // once" case only comes up if the main list's shared Save Changes bar
+  // has more than one row staged to Finished at the same time.
+  function promptPrescriptionsForIdsThen(ids, afterAll) {
+    var queue = ids.slice();
+    function next() {
+      if (!queue.length) { afterAll(); return; }
+      var id = queue.shift();
+      var a = appointmentsCache && appointmentsCache.filter(function (x) { return String(x.id) === String(id); })[0];
+      if (!a) { next(); return; }
+      prescriptionModalCloseCallback = next;
+      openPrescriptionModal(a);
+    }
+    next();
+  }
+
   function openPrescriptionModal(a) {
     prescriptionTargetId = a.id;
     prescriptionModalSub.textContent = (a.name || 'Unknown') + ' (' + (a.phone || '-') + ') · ' + formatDateHeading(a.date) + ' · ' + (a.timeSlotLabel || '');
@@ -1141,6 +1385,11 @@
     prescriptionModalOverlay.classList.remove('is-open');
     prescriptionTargetId = null;
     rxImagesReset();
+    if (prescriptionModalCloseCallback) {
+      var runAfterClose = prescriptionModalCloseCallback;
+      prescriptionModalCloseCallback = null;
+      runAfterClose();
+    }
   }
   closePrescriptionModalBtn.addEventListener('click', closePrescriptionModal);
   var prescriptionModalMouseDownOnOverlay = false;
@@ -1380,6 +1629,11 @@
     lokiApptFormSub.textContent = prefill
       ? 'Pick a new date and time for ' + (prefill.name || 'this patient') + '. The old slot is freed up automatically.'
       : 'Pick a date and time for the patient \u2014 we\u2019ll save it right away.';
+    // A previous successful booking leaves this disabled (it's only
+    // re-enabled on the conflict/error paths -- a success just closes the
+    // modal instead) -- always clear it back out here so the button isn't
+    // stuck disabled/greyed-out the next time this modal is opened.
+    lokiApptFormSubmitBtn.disabled = false;
     lokiApptFormSubmitBtn.textContent = prefill ? 'Confirm Reschedule' : 'Confirm Appointment';
     lokiApptFormStatus.textContent = '';
     lokiApptFormStatus.className = 'form-status';
@@ -1467,7 +1721,11 @@
           // this data (the main appointment list, a re-opened search) sees
           // it is to drop the cache so the next load re-fetches for real.
           appointmentsCache = null;
-          setTimeout(closeLokiApptFormModal, 1200);
+          // Stays open for 20 seconds after a successful booking/reschedule
+          // (not the old 1.2s) so Dr. Lokesh/Management has time to read
+          // the confirmation before it closes on its own -- closing it
+          // manually (the X button) still works immediately, same as ever.
+          setTimeout(closeLokiApptFormModal, 20000);
         } else if (data.result === 'conflict') {
           lokiApptFormSubmitBtn.disabled = false;
           lokiApptFormSubmitBtn.textContent = isReschedule ? 'Confirm Reschedule' : 'Confirm Appointment';
@@ -1553,6 +1811,13 @@
     var statusRow = document.createElement('div');
     statusRow.className = 'loki-search-status-row';
 
+    var statusSavingOverlay = document.createElement('div');
+    statusSavingOverlay.className = 'form-saving-overlay';
+    var statusSavingSpinner = document.createElement('span');
+    statusSavingSpinner.className = 'loki-spinner';
+    statusSavingOverlay.appendChild(statusSavingSpinner);
+    statusRow.appendChild(statusSavingOverlay);
+
     var statusSelectWrap = document.createElement('div');
     statusSelectWrap.className = 'loki-search-status-field';
     var statusSelectLabel = document.createElement('label');
@@ -1598,11 +1863,15 @@
     searchStatusSelect.addEventListener('change', refreshSearchStatusDirty);
     searchReasonSelect.addEventListener('change', refreshSearchStatusDirty);
 
-    searchStatusSaveBtn.addEventListener('click', function () {
+    // The actual network save -- pulled out of the click handler so the
+    // Finished -> prescription prompt can run first (see below) and only
+    // call this once that modal is closed.
+    function performSearchStatusSave() {
       searchStatusSaveBtn.disabled = true;
       searchStatusSaveBtn.textContent = 'Saving…';
       searchStatusMsg.textContent = '';
       searchStatusMsg.className = 'form-status';
+      statusSavingOverlay.classList.add('is-active');
       var fd = new FormData();
       fd.append('action', 'lokiSaveApptStatus');
       fd.append('passcode', currentPasscode);
@@ -1622,7 +1891,25 @@
           refreshSearchStatusDirty();
           searchStatusMsg.textContent = err && err.message ? err.message : 'Could not save status.';
           searchStatusMsg.className = 'form-status error';
+        })
+        .finally(function () {
+          statusSavingOverlay.classList.remove('is-active');
         });
+    }
+
+    searchStatusSaveBtn.addEventListener('click', function () {
+      // Being set to Finished here -- offer the prescription modal first,
+      // on top of this search modal (see the #prescriptionModalOverlay
+      // z-index bump in loki.css), and only actually persist the Finished
+      // status once that prescription window is closed, instead of saving
+      // the status first and prompting afterwards.
+      if (searchStatusSelect.value === 'Finished' && (a.status || '') !== 'Finished') {
+        searchStatusSaveBtn.disabled = true;
+        prescriptionModalCloseCallback = performSearchStatusSave;
+        openPrescriptionModal(a);
+        return;
+      }
+      performSearchStatusSave();
     });
 
     row.appendChild(statusRow);

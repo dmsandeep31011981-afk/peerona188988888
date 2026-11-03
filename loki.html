@@ -41,7 +41,7 @@
       </div>
       <div class="loki-header-tabs">
         <button type="button" class="loki-header-tab" id="lokiBookApptTab"><i data-icon="calendar"></i> Book Appointment</button>
-        <button type="button" class="loki-header-tab" id="lokiCancelReschedTab"><i data-icon="search"></i> Cancel/Reschedule Appointment</button>
+        <button type="button" class="loki-header-tab" id="lokiCancelReschedTab"><i data-icon="search"></i> Search Booking/Cancel/Reschedule Appointment</button>
       </div>
       <button type="button" class="btn btn-outline loki-lock-btn" id="lokiLockBtn"><i data-icon="x"></i> <span id="lokiLockLabel">Logout</span></button>
     </div>
@@ -53,7 +53,7 @@
     <section class="loki-section" id="apptSection">
       <button type="button" class="loki-section-toggle" id="apptToggle" aria-expanded="false">
         <i data-icon="calendar"></i>
-        <span>Appointment Section</span>
+        <span>Appointment Detail Section</span>
         <i data-icon="arrow-up" class="loki-chevron"></i>
       </button>
 
@@ -67,12 +67,26 @@
           <button type="button" class="loki-refresh-btn" id="apptRefreshBtn" title="Refresh" aria-label="Refresh appointments"><i data-icon="refresh"></i></button>
         </div>
 
+        <div class="loki-sort-row">
+          <label for="apptSortSelect">Sort by</label>
+          <select id="apptSortSelect">
+            <option value="date">Date</option>
+            <option value="name">Patient Name</option>
+            <option value="status">Status</option>
+          </select>
+          <label for="apptSortOrderSelect">Order</label>
+          <select id="apptSortOrderSelect">
+            <option value="asc">Ascending</option>
+            <option value="desc">Descending</option>
+          </select>
+        </div>
+
         <p class="form-status" id="apptStatus" aria-live="polite"></p>
         <div class="loki-list" id="apptList"></div>
 
         <div class="loki-save-bar" id="apptSaveBar" hidden>
           <span id="apptSaveCount"></span>
-          <button type="button" class="btn btn-primary" id="apptSaveBtn">Save Changes</button>
+          <button type="button" class="btn btn-primary" id="apptSaveBtn" disabled>Save Changes</button>
         </div>
       </div>
     </section>
@@ -92,6 +106,20 @@
           <button type="button" class="btn btn-outline loki-nav-btn" id="msgTodayBtn">Today</button>
           <button type="button" class="btn btn-outline loki-nav-btn" id="msgNextBtn">Later &rarr;</button>
           <button type="button" class="loki-refresh-btn" id="msgRefreshBtn" title="Refresh" aria-label="Refresh messages"><i data-icon="refresh"></i></button>
+        </div>
+
+        <div class="loki-sort-row">
+          <label for="msgSortSelect">Sort by</label>
+          <select id="msgSortSelect">
+            <option value="date">Date</option>
+            <option value="name">Patient Name</option>
+            <option value="status">Status (Replied / Not Replied)</option>
+          </select>
+          <label for="msgSortOrderSelect">Order</label>
+          <select id="msgSortOrderSelect">
+            <option value="asc">Ascending</option>
+            <option value="desc">Descending</option>
+          </select>
         </div>
 
         <p class="form-status" id="msgStatus" aria-live="polite"></p>
@@ -205,8 +233,10 @@
         <label>Prescription photos &amp; files <span class="form-optional">(optional, any number &mdash; photos, PDF, Word, Excel, PowerPoint)</span></label>
         <div class="loki-rx-image-list" id="prescriptionImageList"></div>
         <input type="file" id="prescriptionImageAddInput" accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx" hidden>
+        <input type="file" id="prescriptionCameraInput" accept="image/*" capture="environment" hidden>
         <div class="loki-rx-image-controls">
           <button type="button" class="btn btn-outline loki-rx-image-add-btn" id="prescriptionImageAddBtn">+ Add Photo / File</button>
+          <button type="button" class="btn btn-outline loki-rx-image-camera-btn" id="prescriptionCameraBtn" hidden>&#128247; Take Photo</button>
           <button type="button" class="btn btn-outline loki-rx-view-all-btn" id="prescriptionViewAllBtn" hidden>&#128065; View All</button>
         </div>
       </div>
@@ -256,7 +286,7 @@
 <div class="modal-overlay" id="lokiCancelReschedModalOverlay">
   <div class="modal-box loki-search-box">
     <button type="button" class="modal-close" id="closeLokiCancelReschedModal" aria-label="Close"><i data-icon="x"></i></button>
-    <h3>Cancel / Reschedule an Appointment</h3>
+    <h3>Search Booking/Cancel / Reschedule an Appointment</h3>
     <p class="modal-sub">Search by patient name or by date to find a booking.</p>
     <div class="modal-scroll-content">
       <div class="loki-search-fields">

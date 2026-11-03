@@ -186,8 +186,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   /* ---------- Glimpse-style coverflow carousel (reusable) ----------
-     Powers both the Gallery's "A Glimpse of Your Retreat" strip and the
-     "Explore Our Signature Treatments" strip, with identical behavior:
+     Powers the hero's "Explore Our Signature Treatments" strip, with:
      3 visible slides, autoplay, pause-on-hover, click-to-select, drag/
      swipe navigation (mouse pull on desktop, thumb swipe on mobile) with
      flick momentum, the mobile left-bias/clamp logic, and (when an
@@ -488,7 +487,6 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(handleGlimpseResize, 400);
   };
 
-  initGlimpseCarousel('glimpseCarousel', 'glimpseTrack', 'glimpseAnchor');
   initGlimpseCarousel('treatmentsCarousel', 'treatmentsTrack', null, 11); // 11 = hero-facial-massage.jpg, centered on load
 
   /* ---------- Newsletter form ---------- */
@@ -589,8 +587,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   };
 
-  /* ---------- Image lightbox (shared by both scrolling-image carousels:
-     the hero's "Signature Treatments" strip and the Gallery section) ----------
+  /* ---------- Image lightbox (for the hero's "Signature Treatments"
+     scrolling-image strip) ----------
      Clicking any slide -- first one, last one, or anywhere in between --
      opens its photo full-size in a closeable overlay, on top of the
      carousel's existing click-to-center behavior (both happen on the same

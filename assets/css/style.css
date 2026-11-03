@@ -287,16 +287,16 @@ section { padding: 100px 0; }
   border-radius: var(--radius-lg); box-shadow: var(--shadow-md); display: block;
 }
 .about-doctor-badge {
-  position: absolute; bottom: -14px; left: -14px;
+  position: absolute; bottom: -18px; left: -18px;
   background: var(--white); border-radius: var(--radius-md); box-shadow: var(--shadow-md);
-  padding: 10px 14px; text-align: center; border: 2px solid var(--cream);
+  padding: 14px 18px; text-align: center; border: 3px solid var(--cream);
 }
 .about-doctor-award-icon {
-  width: 24px; height: 29px; display: block; margin: 0 auto 4px;
+  width: 34px; height: 42px; display: block; margin: 0 auto 6px;
   filter: drop-shadow(0 2px 3px rgba(74, 59, 54, 0.18));
 }
-.about-doctor-badge strong { display: block; font-family: var(--font-heading); font-size: 0.82rem; color: var(--blush-dark); }
-.about-doctor-badge span { font-size: 0.6rem; color: var(--text-light); }
+.about-doctor-badge strong { display: block; font-family: var(--font-heading); font-size: 1rem; color: var(--blush-dark); }
+.about-doctor-badge span { font-size: 0.68rem; color: var(--text-light); }
 
 .about-doctor-bio { display: grid; gap: 20px; }
 .about-doctor-bio p { color: var(--text-dark); font-size: 1rem; line-height: 1.85; }
@@ -359,8 +359,7 @@ section { padding: 100px 0; }
 .price-card.featured li i { color: var(--gold-light); }
 .price-card .btn { width: 100%; }
 
-/* ---------- Gallery / Glimpse Carousel ---------- */
-.gallery { background: var(--white); padding-bottom: 100px; }
+/* ---------- Glimpse Carousel ---------- */
 .glimpse-carousel {
   position: relative;
   height: 420px;
