@@ -42,6 +42,8 @@
       <div class="loki-header-tabs">
         <button type="button" class="loki-header-tab" id="lokiBookApptTab"><i data-icon="calendar"></i> Book Appointment</button>
         <button type="button" class="loki-header-tab" id="lokiCancelReschedTab"><i data-icon="search"></i> Search Booking/Cancel/Reschedule Appointment</button>
+        <button type="button" class="loki-header-tab" id="lokiReorderTab"><i data-icon="move-vertical"></i> Insert/Delete/Push up/Push down</button>
+        <button type="button" class="loki-header-tab" id="lokiOriginalTab"><i data-icon="history"></i> Show Original Bookings</button>
       </div>
       <button type="button" class="btn btn-outline loki-lock-btn" id="lokiLockBtn"><i data-icon="x"></i> <span id="lokiLockLabel">Logout</span></button>
     </div>
@@ -307,6 +309,53 @@
       <div class="loki-search-results" id="lokiSearchResults">
         <p class="loki-empty">Type a name or pick a date to search.</p>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Insert/Delete/Push up/Push down ===== -->
+<div class="modal-overlay" id="lokiReorderModalOverlay">
+  <div class="modal-box loki-reorder-box">
+    <button type="button" class="modal-close" id="closeLokiReorderModal" aria-label="Close"><i data-icon="x"></i></button>
+    <h3>Insert/Delete/Push up/Push down</h3>
+    <p class="modal-sub">Check a booking below to insert a new one after it, delete it, or push it earlier/later. Nothing here is saved until you click Save Changes &mdash; and unlike the usual Cancel/Reschedule actions, nothing here emails the patient.</p>
+    <div class="loki-nav">
+      <button type="button" class="btn btn-outline loki-nav-btn" id="lokiReorderTodayBtn">Today</button>
+      <label class="loki-reorder-date-label">Pick a date
+        <input type="date" class="loki-reorder-date-input" id="lokiReorderDateInput">
+      </label>
+      <span class="loki-nav-label" id="lokiReorderRangeLabel">&mdash;</span>
+    </div>
+    <div class="modal-scroll-content">
+      <p class="form-status" id="lokiReorderStatus" aria-live="polite"></p>
+      <div class="loki-list" id="lokiReorderList"></div>
+    </div>
+    <div class="loki-save-bar" id="lokiReorderSaveBar" hidden>
+      <span id="lokiReorderSaveCount"></span>
+      <div class="loki-reorder-savebar-actions">
+        <button type="button" class="btn btn-outline" id="lokiReorderResetBtn">Reset All</button>
+        <button type="button" class="btn btn-primary" id="lokiReorderSaveBtn" disabled>Save Changes</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Show Original Bookings ===== -->
+<div class="modal-overlay" id="lokiOriginalModalOverlay">
+  <div class="modal-box loki-reorder-box">
+    <button type="button" class="modal-close" id="closeLokiOriginalModal" aria-label="Close"><i data-icon="x"></i></button>
+    <h3>Show Original Bookings</h3>
+    <p class="modal-sub">Pick a date to see that day's bookings alongside the slot each one was originally booked for, before any pushes or reschedules.</p>
+    <div class="loki-nav">
+      <button type="button" class="btn btn-outline loki-nav-btn" id="lokiOriginalTodayBtn">Today</button>
+      <label class="loki-reorder-date-label">Pick a date
+        <input type="date" class="loki-reorder-date-input" id="lokiOriginalDateInput">
+      </label>
+      <span class="loki-nav-label" id="lokiOriginalRangeLabel">&mdash;</span>
+    </div>
+    <div class="modal-scroll-content">
+      <p class="form-status" id="lokiOriginalStatus" aria-live="polite"></p>
+      <div class="loki-list" id="lokiOriginalList"></div>
     </div>
   </div>
 </div>

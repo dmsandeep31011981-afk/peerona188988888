@@ -701,8 +701,8 @@ function getOrCreateAppointmentsSheet_() {
   let sheet = ss.getSheetByName(APPOINTMENTS_SHEET_NAME);
   if (!sheet) {
     sheet = ss.insertSheet(APPOINTMENTS_SHEET_NAME);
-    sheet.appendRow(['Id', 'Timestamp', 'Name', 'Phone', 'Date', 'Start Time', 'End Time', 'Time Slot', 'Email', 'Status', 'ReScheduled Id', 'Prescription', 'Cancelled Reason', 'Prescription Image', 'Prescription Image 2']);
-    sheet.getRange(1, 1, 1, 15).setFontWeight('bold');
+    sheet.appendRow(['Id', 'Timestamp', 'Name', 'Phone', 'Date', 'Start Time', 'End Time', 'Time Slot', 'Email', 'Status', 'ReScheduled Id', 'Prescription', 'Cancelled Reason', 'Prescription Image', 'Prescription Image 2', 'OriginalBookedSlot']);
+    sheet.getRange(1, 1, 1, 16).setFontWeight('bold');
     sheet.setFrozenRows(1);
     // Keep Date/Start Time/End Time as plain text (not auto-converted to
     // date/time serials) so string comparisons stay simple and reliable.
@@ -722,10 +722,16 @@ function getOrCreateAppointmentsSheet_() {
     sheet.getRange(2, 13, 999, 1).setDataValidation(
       SpreadsheetApp.newDataValidation().requireValueInList(CANCEL_REASON_VALUES, true).setAllowInvalid(false).build()
     );
+    // OriginalBookedSlot is free text (a human-readable "date, time slot"
+    // snapshot), so it stays plain text like the other text columns.
+    sheet.getRange(2, 16, 999, 1).setNumberFormat('@');
   }
   // Self-healing upgrade for a sheet created before the Prescription Image
   // columns existed — see ensurePrescriptionImageColumns_.
   ensurePrescriptionImageColumns_(sheet);
+  // Self-healing upgrade for a sheet created before OriginalBookedSlot
+  // existed — see ensureOriginalBookedSlotColumn_.
+  ensureOriginalBookedSlotColumn_(sheet);
   // Lazily promote any blank ("Upcoming") row whose booking slot has
   // already ended to "Past" — runs on every access to this sheet (every
   // caller goes through this function), so no scheduled trigger is
@@ -749,6 +755,43 @@ function ensurePrescriptionImageColumns_(sheet) {
   sheet.getRange(1, 14, 1, 2).setValues([['Prescription Image', 'Prescription Image 2']]);
   sheet.getRange(1, 14, 1, 2).setFontWeight('bold');
   sheet.getRange(2, 14, 999, 2).setNumberFormat('@');
+}
+
+// One-time, self-healing upgrade: a sheet created before the
+// OriginalBookedSlot feature existed only has 15 columns (through
+// Prescription Image 2). The first time this runs against one of those, it
+// appends the 'OriginalBookedSlot' header so the sheet matches what a
+// brand-new one gets above. Safe to call every time: it only touches the
+// header row, and only when that column isn't already there, so it's a
+// no-op on every call after the first. Existing rows are intentionally left
+// blank here — handleAppointment_/handleLokiReschedule_/
+// handleLokiApplyReorder_ all fall back to the row's own current Date/Time
+// Slot when OriginalBookedSlot is blank (see originalBookedSlotValue_), so
+// a never-rescheduled older booking still reports a sensible original slot.
+function ensureOriginalBookedSlotColumn_(sheet) {
+  const lastCol = Math.max(sheet.getLastColumn(), 1);
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map((h) => String(h || '').trim());
+  if (headers.indexOf('OriginalBookedSlot') !== -1) return; // already upgraded
+
+  sheet.getRange(1, 16, 1, 1).setValues([['OriginalBookedSlot']]);
+  sheet.getRange(1, 16, 1, 1).setFontWeight('bold');
+  sheet.getRange(2, 16, 999, 1).setNumberFormat('@');
+}
+
+// Computes the OriginalBookedSlot value to carry onto a new/replacement row,
+// given the row it's superseding (or blank values for a genuinely new
+// booking). If the old row already had an OriginalBookedSlot recorded, that
+// value is carried forward unchanged — it's the first slot this booking was
+// ever created for, however many times it's been pushed/rescheduled since.
+// Otherwise it's built fresh from the old row's own Date + Time Slot label
+// (or, for a brand new booking, there is no "old" row at all).
+function originalBookedSlotValue_(oldOriginalBookedSlot, oldDateStr, oldLabel) {
+  const existing = String(oldOriginalBookedSlot || '').trim();
+  if (existing) return existing;
+  const dateStr = String(oldDateStr || '').trim();
+  const label = String(oldLabel || '').trim();
+  if (!dateStr && !label) return '';
+  return (dateStr && label) ? (dateStr + ', ' + label) : (dateStr || label);
 }
 
 // Blank-status rows whose End Time has already passed (compared against
@@ -826,6 +869,37 @@ function getBookedSlotsForDate_(dateStr) {
 
 function isSlotBooked_(dateStr, startTime) {
   return getBookedSlotsForDate_(dateStr).indexOf(startTime) !== -1;
+}
+
+// Same conflict check as isSlotBooked_, but a row whose Id is in
+// excludeIds is never treated as occupying its slot, even if its Status is
+// still blank/Finished. Used only by handleLokiApplyReorder_'s own
+// conflict re-check: when Push Up/Push Down stages a pure swap between two
+// bookings, each one's new slot is the OTHER one's current slot -- plain
+// isSlotBooked_ would see that other row still sitting there (it hasn't
+// been marked ReScheduled yet, since that only happens in a second pass
+// after every move in the batch has been appended) and wrongly skip BOTH
+// halves of the swap as "conflicting with each other". Passing every id in
+// this batch's own moves as excludeIds fixes that: a slot currently held
+// by a row that is itself about to move elsewhere in this same batch isn't
+// a real conflict, only a slot still held by some OTHER, unrelated active
+// booking is.
+function isSlotBookedExcludingIds_(sheet, dateStr, startTime, excludeIds) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return false;
+  const ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  const dates = sheet.getRange(2, 5, lastRow - 1, 1).getValues();
+  const times = sheet.getRange(2, 6, lastRow - 1, 1).getValues();
+  const statuses = sheet.getRange(2, 10, lastRow - 1, 1).getValues();
+  for (let i = 0; i < ids.length; i++) {
+    if (excludeIds.has(String(ids[i][0]))) continue;
+    const status = String(statuses[i][0] || '').trim();
+    if (statusFreesSlot_(status)) continue;
+    if (formatDateForCompare_(dates[i][0]) === dateStr && formatTimeForCompare_(times[i][0]) === startTime) {
+      return true;
+    }
+  }
+  return false;
 }
 
 // Keeps the sheet grouped by date (then by time within each date) after
@@ -973,7 +1047,26 @@ function handleAppointment_(params) {
 
     const sheet = getOrCreateAppointmentsSheet_();
     const newId = getNextId_(sheet);
-    sheet.appendRow([newId, new Date(), name, phone, date, startTime, endTime, label, email, '', '', '', '']);
+
+    // OriginalBookedSlot: for a reschedule.html rebooking, carry forward the
+    // slot the cancelled booking originally had (or, if that booking was
+    // itself a reschedule, whatever OriginalBookedSlot it already carried).
+    // For a genuinely new booking, this new slot IS the original slot.
+    let originalBookedSlot = '';
+    if (originalId) {
+      const oldRow = findRowById_(sheet, originalId);
+      if (oldRow !== -1) {
+        const oldOriginal = String(sheet.getRange(oldRow, 16).getValue() || '').trim();
+        const oldDateStr = formatDateForCompare_(sheet.getRange(oldRow, 5).getValue());
+        const oldLabel = String(sheet.getRange(oldRow, 8).getValue() || '').trim();
+        originalBookedSlot = originalBookedSlotValue_(oldOriginal, oldDateStr, oldLabel);
+      }
+    }
+    if (!originalBookedSlot) {
+      originalBookedSlot = originalBookedSlotValue_('', date, label);
+    }
+
+    sheet.appendRow([newId, new Date(), name, phone, date, startTime, endTime, label, email, '', '', '', '', '', '', originalBookedSlot]);
     sortAppointmentsSheet_(sheet);
     logTransactionSafe_('BookedAppointments', newId, ACTION_ID_CREATE, USER_ID_PATIENT,
       'Name:' + name + ' | Phone:' + phone + ' | Email:' + (email || '-') +
@@ -1072,7 +1165,15 @@ function handleLokiReschedule_(params) {
     }
 
     const newId = getNextId_(sheet);
-    sheet.appendRow([newId, new Date(), name, phone, date, startTime, endTime, label, email, '', '', '', '']);
+
+    // Carry forward the slot this booking was originally made for (see
+    // originalBookedSlotValue_ / ensureOriginalBookedSlotColumn_).
+    const oldOriginal = String(sheet.getRange(originalRow, 16).getValue() || '').trim();
+    const oldDateStr = formatDateForCompare_(sheet.getRange(originalRow, 5).getValue());
+    const oldLabel = String(sheet.getRange(originalRow, 8).getValue() || '').trim();
+    const originalBookedSlot = originalBookedSlotValue_(oldOriginal, oldDateStr, oldLabel);
+
+    sheet.appendRow([newId, new Date(), name, phone, date, startTime, endTime, label, email, '', '', '', '', '', '', originalBookedSlot]);
     sortAppointmentsSheet_(sheet);
 
     // sortAppointmentsSheet_ just re-sorted the whole sheet, so the
@@ -1102,6 +1203,154 @@ function handleLokiReschedule_(params) {
     }
 
     return jsonResponse_({ result: 'success', id: newId });
+
+  } catch (err) {
+    return jsonResponse_({ result: 'error', message: err.message });
+
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Admin-initiated batch reorder, used by loki.html's "Insert/Delete/Push
+// up/Push down" tab. Applies any number of silent (no email, no calendar
+// event) time moves -- each one modeled exactly like handleLokiReschedule_'s
+// single-booking admin reschedule (old row -> ReScheduled, pointing at a
+// brand-new row with the finalized date/time) -- plus any number of silent
+// cancellations, all under one lock so the whole batch is atomic. This is
+// for pure internal schedule shuffling (the doctor reordering their own
+// day), never a patient-facing action, which is why neither branch here
+// ever calls sendAppointmentEmail_ / sendCancellationEmail_ /
+// addAppointmentCalendarEvent_ the way the equivalent single-booking
+// actions (handleLokiReschedule_, handleLokiSaveApptStatus_) do.
+//
+// params.moves: JSON array of { id, date, timeSlotStart, timeSlotEnd,
+//   timeSlotLabel } -- the FINALIZED new date/time for every booking whose
+//   slot actually changed. The frontend only ever trades an existing slot
+//   between two already-shown bookings (a Push Up/Push Down swap), so by
+//   construction this can't introduce a brand-new conflict on its own --
+//   isSlotBooked_ is still re-checked per move below as a defensive guard
+//   against a slot changing from something else entirely in the meantime.
+// params.cancels: JSON array of ids to cancel outright (no replacement
+//   row created), from the tab's Delete button.
+//
+// A row that's no longer an active ("Upcoming") booking by the time this
+// runs -- already Cancelled/ReScheduled/Finished, whether that happened
+// through this same batch or anything else since the admin's browser last
+// loaded it -- is skipped rather than failing the whole batch; its id comes
+// back in `skipped` so the frontend can say so and refresh.
+function handleLokiApplyReorder_(params) {
+  const actingUser = resolveLokiUser_(params.passcode);
+  if (!actingUser) {
+    return jsonResponse_({ result: 'error', message: 'Invalid passcode.' });
+  }
+
+  let moves, cancels;
+  try {
+    moves = JSON.parse(params.moves || '[]');
+    cancels = JSON.parse(params.cancels || '[]');
+  } catch (parseErr) {
+    return jsonResponse_({ result: 'error', message: 'Malformed request.' });
+  }
+  if (!Array.isArray(moves)) moves = [];
+  if (!Array.isArray(cancels)) cancels = [];
+  if (!moves.length && !cancels.length) {
+    return jsonResponse_({ result: 'error', message: 'No changes received.' });
+  }
+
+  const lock = LockService.getScriptLock();
+  lock.tryLock(10000);
+
+  const movedIds = [];
+  const cancelledIds = [];
+  const skipped = [];
+
+  try {
+    const sheet = getOrCreateAppointmentsSheet_();
+
+    // Every id this batch's moves are relocating -- a target slot
+    // currently held by one of these isn't a real conflict, since that
+    // row is about to vacate it as part of this very batch. See
+    // isSlotBookedExcludingIds_'s own comment for why this matters: a
+    // plain conflict check would wrongly block a pure swap between two
+    // bookings (Push Up/Push Down's whole premise), since each one's new
+    // slot is the other's current one.
+    const movingIds = new Set(moves.map((m) => m && m.id).filter((x) => x !== undefined && x !== null).map(String));
+
+    // Cancels first: the tab keeps Delete and Push Up/Down mutually
+    // exclusive per row in the UI, but if an id somehow ends up in both
+    // lists, cancelling it here first means the matching move below gets
+    // skipped by the status guard, instead of silently un-cancelling it.
+    cancels.forEach((id) => {
+      const row = findRowById_(sheet, id);
+      if (row === -1) { skipped.push(id); return; }
+      const status = String(sheet.getRange(row, 10).getValue() || '').trim();
+      if (status === STATUS_CANCELLED || status === STATUS_RESCHEDULED || status === STATUS_FINISHED) {
+        skipped.push(id); return; // already not an active slot -- nothing to do
+      }
+      sheet.getRange(row, 10).setValue(STATUS_CANCELLED);
+      cancelledIds.push(id);
+      logTransactionSafe_('BookedAppointments', id, ACTION_ID_MODIFY, actingUser.id,
+        'Status: ' + (status || '-') + ' -> Cancelled (Insert/Delete/Push up/Push down tool)');
+    });
+
+    // Moves: append every new row first (without sorting in between --
+    // each appendRow would otherwise shift where every other row sits),
+    // THEN sort once, THEN look each original row back up by Id (same
+    // reason handleLokiReschedule_ re-looks-up its one row after sorting)
+    // and mark it ReScheduled.
+    const newRows = []; // { originalId, newId, name, phone }
+    moves.forEach((m) => {
+      const id = m && m.id;
+      const date = String((m && m.date) || '').trim();
+      const startTime = String((m && m.timeSlotStart) || '').trim();
+      const endTime = String((m && m.timeSlotEnd) || '').trim();
+      const label = String((m && m.timeSlotLabel) || '').trim();
+      if (!id || !date || !startTime || !endTime) { skipped.push(id); return; }
+
+      const row = findRowById_(sheet, id);
+      if (row === -1) { skipped.push(id); return; }
+      const status = String(sheet.getRange(row, 10).getValue() || '').trim();
+      if (status === STATUS_CANCELLED || status === STATUS_RESCHEDULED || status === STATUS_FINISHED) {
+        skipped.push(id); return; // no longer an active, movable slot
+      }
+      if (isSlotBookedExcludingIds_(sheet, date, startTime, movingIds)) { skipped.push(id); return; } // defensive re-check, excluding this batch's own moves (see isSlotBookedExcludingIds_'s comment)
+
+      const name = sheet.getRange(row, 3).getValue();
+      const phone = sheet.getRange(row, 4).getValue();
+      const email = sheet.getRange(row, 9).getValue();
+      const newId = getNextId_(sheet);
+
+      // Carry forward the slot this booking was originally made for (same
+      // as handleLokiReschedule_).
+      const oldOriginal = String(sheet.getRange(row, 16).getValue() || '').trim();
+      const oldDateStr = formatDateForCompare_(sheet.getRange(row, 5).getValue());
+      const oldLabel = String(sheet.getRange(row, 8).getValue() || '').trim();
+      const originalBookedSlot = originalBookedSlotValue_(oldOriginal, oldDateStr, oldLabel);
+
+      // Mirrors handleLokiReschedule_'s own appendRow shape exactly.
+      sheet.appendRow([newId, new Date(), name, phone, date, startTime, endTime, label, email, '', '', '', '', '', '', originalBookedSlot]);
+      newRows.push({ originalId: id, newId, name, phone });
+    });
+
+    if (newRows.length) {
+      sortAppointmentsSheet_(sheet);
+      newRows.forEach((nr) => {
+        const freshOriginalRow = findRowById_(sheet, nr.originalId);
+        if (freshOriginalRow === -1) return; // shouldn't happen -- found moments ago
+        const wasStatus = String(sheet.getRange(freshOriginalRow, 10).getValue() || '').trim();
+        sheet.getRange(freshOriginalRow, 10).setValue(STATUS_RESCHEDULED);
+        sheet.getRange(freshOriginalRow, 11).setValue(nr.newId);
+        movedIds.push(nr.originalId);
+
+        logTransactionSafe_('BookedAppointments', nr.newId, ACTION_ID_CREATE, actingUser.id,
+          'Name:' + nr.name + ' | Phone:' + nr.phone + ' | RescheduledFrom:' + nr.originalId + ' (Insert/Delete/Push up/Push down tool)');
+        logTransactionSafe_('BookedAppointments', nr.originalId, ACTION_ID_MODIFY, actingUser.id,
+          'Status: ' + (wasStatus || '-') + ' -> ReScheduled | ReScheduledId:' + nr.newId + ' (Insert/Delete/Push up/Push down tool)');
+      });
+    }
+
+    return jsonResponse_({ result: 'success', movedIds, cancelledIds, skipped });
 
   } catch (err) {
     return jsonResponse_({ result: 'error', message: err.message });
@@ -1257,7 +1506,7 @@ function getAppointmentsForLoki_() {
   // columns (14-15) read right here; now they come from AllImages instead
   // (any number of them), looked up once via getAllImagesIndexed_ rather
   // than re-reading AllImages per row.
-  const data = sheet.getRange(2, 1, lastRow - 1, 15).getValues();
+  const data = sheet.getRange(2, 1, lastRow - 1, 16).getValues();
   const imagesIndex = getAllImagesIndexed_();
   return data.map((row) => ({
     id: row[0],
@@ -1273,6 +1522,11 @@ function getAppointmentsForLoki_() {
     rescheduledId: row[10] === '' || row[10] === null ? '' : row[10],
     prescription: String(row[11] || ''),
     cancelledReason: String(row[12] || ''),
+    // Falls back to this row's own Date + Time Slot when blank -- an older
+    // row that predates this column (see ensureOriginalBookedSlotColumn_)
+    // never had a reschedule recorded onto it, so its own current slot IS
+    // the original one.
+    originalBookedSlot: originalBookedSlotValue_(row[15], formatDateForCompare_(row[4]), String(row[7] || '')),
     // [{ id, url, name, isImage }, ...] -- id is the AllImages row's own
     // Id, needed so the Prescription modal's per-photo Remove can target
     // exactly one photo via handleLokiRemovePrescriptionImage_. name/
@@ -1621,6 +1875,9 @@ function doPost(e) {
   }
   if (params.action === 'lokiReschedule') {
     return handleLokiReschedule_(params);
+  }
+  if (params.action === 'lokiApplyReorder') {
+    return handleLokiApplyReorder_(params);
   }
   if (params.action === 'lokiSendReply') {
     return handleLokiSendReply_(params);

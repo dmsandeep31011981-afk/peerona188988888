@@ -16,6 +16,15 @@ body.loki-page { background: var(--cream); }
    so it always shows on top when that happens. */
 #prescriptionModalOverlay { z-index: 1001; }
 
+/* Same reasoning as the Prescription modal above: "Insert Booking Below" in
+   the Insert/Delete/Push up/Push down tab deliberately opens the ordinary
+   Book Appointment modal WITHOUT closing the reorder modal behind it (so
+   the admin lands back in their place in the reorder tool once they're
+   done booking) -- give it the same above-its-siblings bump so it actually
+   shows and stays clickable instead of being painted over by the reorder
+   modal, which is later in loki.html's markup. */
+#lokiApptFormModalOverlay { z-index: 1001; }
+
 /* ---------- Passcode gate ---------- */
 .loki-gate {
   position: fixed; inset: 0; background: var(--cream);
@@ -525,6 +534,52 @@ html, body { overflow-x: visible; }
 .loki-search-cancel-confirm-btn:hover { background: #a3301f; border-color: #a3301f; }
 .loki-search-cancel-back-btn { border: 1.5px solid #e9ddd6; background: var(--white); color: var(--text-dark); }
 
+/* ---------- Insert/Delete/Push up/Push down ---------- */
+.loki-reorder-box { width: min(760px, calc(100vw - 40px)); max-width: min(760px, calc(100vw - 40px)); }
+/* Today + calendar date-picker, reusing .loki-nav's own centered/wrapping
+   layout (shared with the main Appointment section's nav) -- only the
+   label+input pair itself needs its own rule, styled the same as the
+   Cancel Dates range fields' date inputs for visual consistency. */
+.loki-reorder-date-label {
+  display: flex; align-items: center; gap: 8px; font-size: 0.82rem; font-weight: 600; color: var(--text-light);
+}
+.loki-reorder-date-input {
+  padding: 9px 12px; border: 1.5px solid #e9ddd6; border-radius: var(--radius-sm);
+  font-family: inherit; font-size: 0.85rem; color: var(--text-dark); background: var(--white);
+}
+/* .loki-reorder-row reuses .appt-row's own background/padding/spacing --
+   only the few things that differ from a normal Appointment row need
+   their own rules here. */
+.loki-reorder-check { flex-shrink: 0; }
+/* The normal .appt-row-time is `white-space: nowrap`, sized for a single
+   short time label -- the "orig time -> new time" text shown here while a
+   row has a staged move is much longer, so it needs to wrap instead of
+   getting clipped at the modal's edge. */
+.loki-reorder-row .appt-row-time { white-space: normal; text-align: right; }
+.loki-reorder-time-orig { color: var(--text-light); text-decoration: line-through; }
+.loki-reorder-time-new { color: #ff3300; font-weight: 700; }
+.loki-reorder-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; width: 100%; margin-top: 4px; }
+/* Delete here mirrors the Save button's filled-pill look, in red instead
+   of orange, so it reads as the one destructive action in the row. */
+.appt-row-delete-btn {
+  padding: 8px 16px; font-size: 0.8rem; font-weight: 600; border-radius: 50px; white-space: nowrap;
+  border: 1.5px solid #c0392b; background: #c0392b; color: var(--white); cursor: pointer; transition: var(--transition);
+}
+.appt-row-delete-btn:hover { background: #a3301f; border-color: #a3301f; }
+.loki-reorder-savebar-actions { display: flex; align-items: center; gap: 10px; }
+.loki-reorder-savebar-actions .btn-outline { border-color: var(--cream); color: var(--cream); padding: 10px 18px; font-size: 0.82rem; }
+.loki-reorder-savebar-actions .btn-outline:hover { background: var(--cream); color: var(--text-dark); }
+
+/* ---------- Show Original Bookings ----------
+   Read-only, so .loki-original-row reuses .appt-row's own background/
+   padding/spacing with no checkbox/action columns -- just a "Current"
+   time next to the bolded "Originally" slot. */
+.loki-original-label { font-weight: 400; color: var(--text-light); margin-right: 2px; }
+.loki-original-current, .loki-original-slot {
+  font-size: 0.86rem; color: var(--text-dark); white-space: nowrap;
+}
+.loki-original-slot strong { font-weight: 700; }
+
 /* ---------- Mobile ---------- */
 @media (max-width: 640px) {
   .loki-header { padding: 12px 0; }
@@ -551,6 +606,7 @@ html, body { overflow-x: visible; }
   .loki-range-fields .btn { align-self: stretch; }
   .cancel-row .appt-row-time { margin-left: 0; width: 100%; order: 3; }
   .loki-cancel-selectbar { flex-direction: column; align-items: flex-start; }
+  .loki-original-current, .loki-original-slot { width: 100%; white-space: normal; }
   /* .loki-save-bar switches to a column here, but .loki-reason-field's
      "flex: 1 1 260px" was written for the row layout, where 260px caps its
      WIDTH -- in a column it becomes a 260px-tall flex-basis instead (plus
@@ -572,6 +628,12 @@ html, body { overflow-x: visible; }
   .loki-search-status-field { flex: 1 1 auto; }
   .loki-search-status-field select { width: 100%; max-width: 100%; }
   .loki-search-status-save-btn { align-self: stretch; text-align: center; }
+
+  /* Insert/Delete/Push up/Push down: stack the per-row action buttons and
+     the Reset All/Save Changes pair so both stay comfortably tappable. */
+  .loki-reorder-actions { flex-direction: column; align-items: stretch; }
+  .loki-reorder-actions button { text-align: center; }
+  .loki-reorder-savebar-actions { flex-direction: column; align-items: stretch; width: 100%; }
 }
 @media (max-width: 640px) {
   /* Trim the notes textarea a little so the whole modal (notes + any

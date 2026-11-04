@@ -117,7 +117,9 @@
     'message-circle': '<svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 1 3.2 6.4L4 20l1.3-3.5A8 8 0 0 1 4 12z"/></svg>',
     'arrow-up': '<svg viewBox="0 0 24 24"><path d="M12 19V5"/><path d="M6 11l6-6 6 6"/></svg>',
     'x-circle': '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9 9l6 6"/><path d="M15 9l-6 6"/></svg>',
-    refresh: '<svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>'
+    refresh: '<svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>',
+    'move-vertical': '<svg viewBox="0 0 24 24"><path d="M12 3v18"/><path d="M8 7l4-4 4 4"/><path d="M8 17l4 4 4-4"/></svg>',
+    history: '<svg viewBox="0 0 24 24"><path d="M12 8v4l3 2"/><circle cx="12" cy="12" r="9"/><path d="M3 7v4h4"/><path d="M3.5 11A8.5 8.5 0 1 1 5 16"/></svg>'
   };
   Array.prototype.forEach.call(document.querySelectorAll('i[data-icon]'), function (el) {
     var name = el.getAttribute('data-icon');
@@ -380,7 +382,16 @@
     var windowEnd = addDays(apptWindowStart, WINDOW_DAYS - 1);
     apptRangeLabel.textContent = formatRangeLabel(apptWindowStart, windowEnd);
 
+    // ReScheduled rows are left out of this list entirely -- each one is
+    // just the old half of a booking that's already been moved to a new
+    // row elsewhere (via the usual Reschedule action, or a Push Up/Push
+    // Down in the Insert/Delete/Push up/Push down tab), so it only ever
+    // cluttered this view with a dead entry pointing at the real, active
+    // booking. It's still fully in the sheet and the audit log, and still
+    // shows up in the Cancel/Reschedule search modal's results if someone
+    // specifically searches for it.
     var inWindow = (appointmentsCache || []).filter(function (a) {
+      if ((a.status || '') === 'ReScheduled') return false;
       var d = parseDateStr(a.date);
       return d >= apptWindowStart && d <= windowEnd;
     });
@@ -1569,6 +1580,17 @@
   var lokiApptDateInput = document.getElementById('lokiApptDate');
   var lokiApptTimeSelect = document.getElementById('lokiApptTime');
   var lokiApptFormOriginalId = null;
+  // Set from prefill.fromReorder by openLokiApptFormModal itself (never by
+  // the caller directly) -- true only while this modal is open because the
+  // Insert/Delete/Push up/Push down tab's "Insert Booking Below" button
+  // opened it. Read by this form's own submit handler below to know
+  // whether a successful NEW booking should also refresh the reorder
+  // tool's list and get folded into its "dates touched this session" set
+  // (see lokiApptForm's submit listener, and reorderTouchedDates further
+  // down). Re-set on every open, so it can never leak true into an
+  // unrelated booking made from the main "Book Appointment" tab or the
+  // search modal's Reschedule button.
+  var lokiApptFormOpenedFromReorder = false;
 
   // Same 10 AM-2 PM / 3 PM-8 PM, 30-minute-slot schedule as the public
   // site's own Book Appointment form and reschedule.html.
@@ -1597,7 +1619,19 @@
   function lokiApptPopulateTimeSlots() {
     lokiApptTimeSelect.innerHTML = '<option value="">Select a time slot</option>' +
       LOKI_TIME_SLOTS.map(function (s) { return '<option value="' + s.start + '">' + s.label + '</option>'; }).join('');
+    // Baseline reset point, run on every open -- see lokiApptFormTimeLocked's
+    // own comment for who sets this back to true.
+    lokiApptTimeSelect.disabled = false;
   }
+
+  // True only while the time slot select is deliberately locked to a
+  // single, auto-picked value -- set by openLokiApptFormModal when
+  // prefill.timeSlotStart names a real slot (currently only the
+  // Insert/Delete/Push up/Push down tab's "Insert Booking Below" does
+  // this), cleared the moment that slot turns out to be unavailable after
+  // all (see lokiApptRefreshSlotAvailability below) so the admin is never
+  // left stuck on a disabled, blank select with no way to pick anything.
+  var lokiApptFormTimeLocked = false;
 
   function lokiApptRefreshSlotAvailability() {
     if (!lokiApptDateInput.value) return;
@@ -1613,7 +1647,21 @@
           opt.disabled = isBooked;
           opt.textContent = isBooked ? (slot.label + ' (Booked)') : slot.label;
         });
-        if (previousValue && booked.indexOf(previousValue) !== -1) lokiApptTimeSelect.value = '';
+        if (previousValue && booked.indexOf(previousValue) !== -1) {
+          lokiApptTimeSelect.value = '';
+          if (lokiApptFormTimeLocked) {
+            // The auto-picked "right after this booking" slot (see
+            // insertBtn's own comment in the reorder tool) is already
+            // taken -- almost certainly by the very next booking, exactly
+            // the "shift of time of bookings after this booking" case Dr.
+            // Lokesh described when asking for this. Hand control back
+            // instead of leaving the admin stuck.
+            lokiApptTimeSelect.disabled = false;
+            lokiApptFormTimeLocked = false;
+            lokiApptFormStatus.textContent = 'That slot is already taken by the next booking — please pick another time, or push the later bookings down first (Push Down, in the Insert/Delete/Push up/Push down tab) and insert again.';
+            lokiApptFormStatus.className = 'form-status error';
+          }
+        }
       })
       .catch(function () {
         // Availability check is a nicety -- the server still blocks a real
@@ -1622,29 +1670,52 @@
   }
 
   // prefill (optional): { id, name, phone, email } from a search result --
-  // present means "Reschedule this booking", absent means "Book Appointment".
+  // an id present means "Reschedule this booking" (the original row gets
+  // marked ReScheduled on submit). prefill without an id -- { date } alone,
+  // or { date, timeSlotStart } -- so far, from the Insert/Delete/Push up/
+  // Push down tab's Insert button -- is a plain NEW booking that only has
+  // its Date field defaulted to something other than today; it must NOT
+  // flip into reschedule mode just because a (id-less) prefill object was
+  // passed, which is why every check below keys off prefill.id
+  // specifically, not prefill's own truthiness. timeSlotStart, when it
+  // names a real slot, locks the time select to that one value instead of
+  // leaving it for the admin to choose -- see lokiApptFormTimeLocked's own
+  // comment above for why, and how that lock can still release itself.
   function openLokiApptFormModal(prefill) {
-    lokiApptFormOriginalId = prefill ? prefill.id : null;
-    lokiApptFormTitle.textContent = prefill ? 'Reschedule Appointment' : 'Book an Appointment';
-    lokiApptFormSub.textContent = prefill
+    var isReschedule = !!(prefill && prefill.id);
+    var lockedSlot = (prefill && prefill.timeSlotStart)
+      ? LOKI_TIME_SLOTS.filter(function (s) { return s.start === prefill.timeSlotStart; })[0]
+      : null;
+    lokiApptFormOriginalId = isReschedule ? prefill.id : null;
+    lokiApptFormOpenedFromReorder = !!(prefill && prefill.fromReorder);
+    lokiApptFormTitle.textContent = isReschedule ? 'Reschedule Appointment' : 'Book an Appointment';
+    lokiApptFormSub.textContent = isReschedule
       ? 'Pick a new date and time for ' + (prefill.name || 'this patient') + '. The old slot is freed up automatically.'
-      : 'Pick a date and time for the patient \u2014 we\u2019ll save it right away.';
+      : lockedSlot
+        ? 'Booked for the half-hour slot right after the one you selected \u2014 we\u2019ll save it right away. Need to make room? Push the later bookings down first, in the Insert/Delete/Push up/Push down tab.'
+        : 'Pick a date and time for the patient \u2014 we\u2019ll save it right away.';
     // A previous successful booking leaves this disabled (it's only
     // re-enabled on the conflict/error paths -- a success just closes the
     // modal instead) -- always clear it back out here so the button isn't
     // stuck disabled/greyed-out the next time this modal is opened.
     lokiApptFormSubmitBtn.disabled = false;
-    lokiApptFormSubmitBtn.textContent = prefill ? 'Confirm Reschedule' : 'Confirm Appointment';
+    lokiApptFormSubmitBtn.textContent = isReschedule ? 'Confirm Reschedule' : 'Confirm Appointment';
     lokiApptFormStatus.textContent = '';
     lokiApptFormStatus.className = 'form-status';
     lokiApptNameInput.value = prefill ? (prefill.name || '') : '';
     lokiApptPhoneInput.value = prefill ? (prefill.phone || '') : '';
     lokiApptEmailInput.value = prefill ? (prefill.email || '') : '';
-    lokiApptPopulateTimeSlots();
+    lokiApptPopulateTimeSlots(); // also resets the select back to enabled -- see its own comment
     var today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
     lokiApptDateInput.min = today;
-    lokiApptDateInput.value = today;
-    lokiApptRefreshSlotAvailability();
+    lokiApptDateInput.value = (prefill && prefill.date) ? prefill.date : today;
+    lokiApptFormTimeLocked = false;
+    if (lockedSlot) {
+      lokiApptTimeSelect.value = lockedSlot.start;
+      lokiApptTimeSelect.disabled = true;
+      lokiApptFormTimeLocked = true;
+    }
+    lokiApptRefreshSlotAvailability(); // may immediately release the lock above if that slot's actually taken
     lokiApptFormModalOverlay.classList.add('is-open');
     lokiApptNameInput.focus();
   }
@@ -1721,6 +1792,27 @@
           // this data (the main appointment list, a re-opened search) sees
           // it is to drop the cache so the next load re-fetches for real.
           appointmentsCache = null;
+          // Came from the Insert/Delete/Push up/Push down tab's "Insert
+          // Booking Below" button (never true for a reschedule, since that
+          // always comes from the search modal instead) -- fold the new
+          // booking's date into this session's reorderTouchedDates (see the
+          // reorder block further down) so closing that tab later knows to
+          // refresh the main Appointment list if it's currently looking at
+          // this date, and refresh the reorder tool's own still-open list
+          // right away so the new booking shows up in it without having to
+          // close and reopen the tab.
+          if (lokiApptFormOpenedFromReorder && !isReschedule) {
+            reorderTouchedDates[lokiApptDateInput.value] = true;
+            if (lokiReorderModalOverlay.classList.contains('is-open')) {
+              fetchAppointments(function () {
+                buildReorderItems();
+                renderLokiReorderList();
+              }, function () {
+                // Best-effort -- the reorder tab's own fetchAppointments
+                // will simply retry the next time it's opened.
+              });
+            }
+          }
           // Stays open for 20 seconds after a successful booking/reschedule
           // (not the old 1.2s) so Dr. Lokesh/Management has time to read
           // the confirmation before it closes on its own -- closing it
@@ -2188,6 +2280,596 @@
     lokiCancelReschedMouseDownOnOverlay = false;
   });
 
+  /* ---------- Insert/Delete/Push up/Push down ----------
+     A dedicated tool for reshuffling the doctor's own upcoming schedule --
+     separate from the usual per-booking Cancel/Reschedule flow because
+     everything here is staged locally first (any number of pushes/
+     deletes) and only actually saved -- in one batch, completely silently
+     (no patient email, no calendar event) -- when Save Changes is
+     clicked. See handleLokiApplyReorder_ in Code.gs for the backend side. */
+  var lokiReorderModalOverlay = document.getElementById('lokiReorderModalOverlay');
+  var closeLokiReorderModalBtn = document.getElementById('closeLokiReorderModal');
+  var lokiReorderTab = document.getElementById('lokiReorderTab');
+  var lokiReorderStatus = document.getElementById('lokiReorderStatus');
+  var lokiReorderList = document.getElementById('lokiReorderList');
+  var lokiReorderSaveBar = document.getElementById('lokiReorderSaveBar');
+  var lokiReorderSaveCount = document.getElementById('lokiReorderSaveCount');
+  var lokiReorderSaveBtn = document.getElementById('lokiReorderSaveBtn');
+  var lokiReorderResetBtn = document.getElementById('lokiReorderResetBtn');
+  var lokiReorderTodayBtn = document.getElementById('lokiReorderTodayBtn');
+  var lokiReorderDateInput = document.getElementById('lokiReorderDateInput');
+  var lokiReorderRangeLabel = document.getElementById('lokiReorderRangeLabel');
+
+  var reorderItems = []; // the FULL staged working set -- see buildReorderItems(). Never
+  // filtered by the selected date below; only what's rendered is, so
+  // picking a different date never discards staged pushes/deletes made on
+  // another date -- Save Changes always applies everything staged here,
+  // visible or not.
+  var reorderSelected = {}; // id -> true, which rows currently have their action buttons showing
+  var reorderSelectedDate = startOfToday(); // the single day the tool is currently showing/operating on -- Today button / calendar picker below
+  // Every date actually touched (persisted) during this tool's current
+  // open session -- a Save Changes batch's old+new dates, a cancelled
+  // booking's date, or an Insert Booking Below booking's date (added by
+  // lokiApptForm's own submit handler above). Reset on open; read on
+  // close to decide whether the main Appointment list needs refreshing --
+  // see closeLokiReorderModal.
+  var reorderTouchedDates = {};
+
+  // (Re)builds the FULL working list straight from appointmentsCache,
+  // discarding any staged pushes/deletes -- only "Upcoming" (blank-status)
+  // bookings are reorderable here; Cancelled/ReScheduled/Finished/Past
+  // ones don't occupy an active slot, so pushing or deleting them wouldn't
+  // mean anything. Deliberately NOT filtered by reorderSelectedDate -- see
+  // reorderItems' own comment. orig* is each booking's real, saved
+  // date/time -- compared against date/startTime/etc. below to know what's
+  // actually changed.
+  function buildReorderItems() {
+    reorderItems = (appointmentsCache || [])
+      .filter(function (a) { return (a.status || '') === ''; })
+      .map(function (a) {
+        return {
+          id: a.id, name: a.name, phone: a.phone, email: a.email,
+          origDate: a.date, origStartTime: a.startTime, origEndTime: a.endTime, origTimeSlotLabel: a.timeSlotLabel,
+          date: a.date, startTime: a.startTime, endTime: a.endTime, timeSlotLabel: a.timeSlotLabel,
+          pendingDelete: false
+        };
+      });
+    reorderSelected = {};
+  }
+
+  // Always-chronological (date+time) view of the FULL staged set, regardless
+  // of whatever Sort by the main Appointment list itself is using.
+  function sortedReorderItems() {
+    return reorderItems.slice().sort(function (x, y) {
+      return (x.date + x.startTime).localeCompare(y.date + y.startTime);
+    });
+  }
+
+  // The subset of sortedReorderItems() that falls on the currently chosen
+  // single date -- this is what's actually rendered, and Push Up/Push Down
+  // only ever trade with a neighbor also on this same date (see
+  // buildReorderRow/pushReorderItem below), so reordering stays scoped to
+  // the one day the admin picked. A pushed item that lands on a different
+  // date simply drops out of view, same as any other date change.
+  function visibleReorderItems() {
+    var selectedStr = toDateStr(reorderSelectedDate);
+    return sortedReorderItems().filter(function (it) { return it.date === selectedStr; });
+  }
+
+  function renderLokiReorderNav() {
+    lokiReorderDateInput.value = toDateStr(reorderSelectedDate);
+    lokiReorderRangeLabel.textContent = formatDateHeading(toDateStr(reorderSelectedDate));
+  }
+
+  function updateLokiReorderSaveBar() {
+    var count = reorderItems.filter(function (it) {
+      return it.pendingDelete || it.date !== it.origDate || it.startTime !== it.origStartTime;
+    }).length;
+    lokiReorderSaveBar.hidden = count === 0;
+    lokiReorderSaveCount.textContent = count + (count === 1 ? ' change' : ' changes');
+    lokiReorderSaveBtn.disabled = count === 0;
+  }
+
+  function renderLokiReorderList() {
+    renderLokiReorderNav();
+    var sorted = visibleReorderItems();
+    // Push Up/Down only ever trade places between two still-active rows --
+    // a row staged for deletion is about to stop existing in this
+    // schedule, so it's left out of the adjacency used for that, even
+    // though it's still shown (struck through) in its chronological spot
+    // below for context.
+    var activeSorted = sorted.filter(function (it) { return !it.pendingDelete; });
+
+    lokiReorderList.innerHTML = '';
+    if (!sorted.length) {
+      var empty = document.createElement('p');
+      empty.className = 'loki-empty';
+      empty.textContent = 'No upcoming bookings on this date to reorder.';
+      lokiReorderList.appendChild(empty);
+      updateLokiReorderSaveBar();
+      return;
+    }
+    sorted.forEach(function (it) {
+      lokiReorderList.appendChild(buildReorderRow(it, activeSorted));
+    });
+    updateLokiReorderSaveBar();
+  }
+
+  function buildReorderRow(it, activeSorted) {
+    var row = document.createElement('div');
+    row.className = 'appt-row loki-reorder-row' + (it.pendingDelete ? ' is-cancelled' : '');
+
+    var checkbox = null;
+    if (!it.pendingDelete) {
+      var checkWrap = document.createElement('label');
+      checkWrap.className = 'loki-reorder-check';
+      checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = !!reorderSelected[it.id];
+      checkWrap.appendChild(checkbox);
+      row.appendChild(checkWrap);
+    }
+
+    var info = document.createElement('div');
+    info.className = 'appt-row-info';
+    info.innerHTML = '<strong>' + escapeHtml(it.name || 'Unknown') + '</strong>' +
+      '<span>' + escapeHtml(it.phone || '-') + '</span>';
+    row.appendChild(info);
+
+    var time = document.createElement('div');
+    time.className = 'appt-row-time';
+    var moved = it.date !== it.origDate || it.startTime !== it.origStartTime;
+    if (moved) {
+      time.innerHTML = '<span class="loki-reorder-time-orig">' +
+        escapeHtml(formatDateHeading(it.origDate) + ' · ' + (it.origTimeSlotLabel || '')) + '</span>' +
+        ' → <span class="loki-reorder-time-new">' +
+        escapeHtml(formatDateHeading(it.date) + ' · ' + (it.timeSlotLabel || '')) + '</span>';
+    } else {
+      time.textContent = formatDateHeading(it.date) + ' · ' + (it.timeSlotLabel || '');
+    }
+    row.appendChild(time);
+
+    if (it.pendingDelete) {
+      var badge = document.createElement('span');
+      badge.className = 'appt-row-status-badge is-cancelled';
+      badge.textContent = 'To be Cancelled';
+      row.appendChild(badge);
+
+      var undoBtn = document.createElement('button');
+      undoBtn.type = 'button';
+      undoBtn.className = 'appt-row-save-btn';
+      undoBtn.textContent = 'Undo';
+      undoBtn.addEventListener('click', function () {
+        it.pendingDelete = false;
+        renderLokiReorderList();
+      });
+      row.appendChild(undoBtn);
+      return row;
+    }
+
+    checkbox.addEventListener('change', function () {
+      // Just shows/hides this row's own action buttons -- it never
+      // reverts an already-staged push itself. A push always trades
+      // places between TWO rows at once, so undoing only one side of
+      // that trade would leave the other stuck on a now-orphaned slot;
+      // Reset All (which rebuilds every row fresh) is the only undo for a
+      // push, by design.
+      //
+      // Only one booking at a time -- checking a row clears every other
+      // selection first, so its own actions (Push Up/Down, Insert, Delete)
+      // always apply to the one booking the admin is actually focused on,
+      // never to a second, still-checked row left over from before.
+      reorderSelected = {};
+      if (checkbox.checked) reorderSelected[it.id] = true;
+      renderLokiReorderList();
+    });
+
+    if (reorderSelected[it.id]) {
+      var index = activeSorted.map(function (x) { return x.id; }).indexOf(it.id);
+      var actions = document.createElement('div');
+      actions.className = 'loki-reorder-actions';
+
+      var upBtn = document.createElement('button');
+      upBtn.type = 'button';
+      upBtn.className = 'appt-row-save-btn';
+      upBtn.textContent = '↑ Push Up';
+      upBtn.disabled = index <= 0;
+      upBtn.addEventListener('click', function () { pushReorderItem(it.id, -1); });
+      actions.appendChild(upBtn);
+
+      var downBtn = document.createElement('button');
+      downBtn.type = 'button';
+      downBtn.className = 'appt-row-save-btn';
+      downBtn.textContent = '↓ Push Down';
+      downBtn.disabled = index === -1 || index >= activeSorted.length - 1;
+      downBtn.addEventListener('click', function () { pushReorderItem(it.id, 1); });
+      actions.appendChild(downBtn);
+
+      var insertBtn = document.createElement('button');
+      insertBtn.type = 'button';
+      insertBtn.className = 'appt-row-prescription-btn';
+      insertBtn.textContent = 'Insert Booking Below';
+      // Opens the ordinary Book Appointment form -- a genuinely new,
+      // separate booking, not linked to this one -- pre-filled with this
+      // row's Date so it's convenient to add right after it. See
+      // openLokiApptFormModal's own comment: a prefill with no id never
+      // triggers its Reschedule mode. fromReorder: true marks it as having
+      // come from here, so that form's own submit handler knows to refresh
+      // this tool's list on success and fold the date into
+      // reorderTouchedDates. timeSlotStart is deliberately this row's own
+      // end time, not left for the admin to pick -- it's always exactly
+      // half an hour after the selected booking, with any bookings already
+      // sitting there onward shifted later manually afterward (Push Up/
+      // Push Down, right here in this same tab) -- see
+      // lokiApptFormTimeLocked's own comment for what happens if that slot
+      // turns out to already be taken.
+      insertBtn.addEventListener('click', function () {
+        var nextSlot = LOKI_TIME_SLOTS.filter(function (s) { return s.start === it.endTime; })[0];
+        openLokiApptFormModal({ date: it.date, timeSlotStart: nextSlot ? nextSlot.start : null, fromReorder: true });
+      });
+      actions.appendChild(insertBtn);
+
+      var deleteBtn = document.createElement('button');
+      deleteBtn.type = 'button';
+      deleteBtn.className = 'appt-row-delete-btn';
+      deleteBtn.textContent = 'Delete';
+      deleteBtn.addEventListener('click', function () {
+        it.pendingDelete = true;
+        delete reorderSelected[it.id];
+        renderLokiReorderList();
+      });
+      actions.appendChild(deleteBtn);
+
+      row.appendChild(actions);
+    }
+
+    return row;
+  }
+
+  // Swaps this booking's date/time fields (in practice, just its time --
+  // see below) with whichever still-active booking currently sits one
+  // place before (dir -1) or after (dir +1) it in the staged chronological
+  // order -- the one in the way takes over this one's old slot, exactly as
+  // if the two had traded places. Every click re-sorts first, so repeated
+  // Push Down clicks keep trading with the next neighbor along, moving
+  // this booking steadily later in the day. The neighbor search is scoped
+  // to the currently-picked date (same as buildReorderRow's own Push
+  // Up/Down disabled logic above), so a push only ever trades with another
+  // booking on that same date the admin can actually see -- which, since
+  // visibleReorderItems() is now a single day, always means swapping two
+  // time slots on that day rather than moving a booking between dates.
+  function pushReorderItem(id, dir) {
+    var activeSorted = visibleReorderItems().filter(function (it) { return !it.pendingDelete; });
+    var index = activeSorted.map(function (it) { return it.id; }).indexOf(id);
+    var neighborIndex = index + dir;
+    if (index === -1 || neighborIndex < 0 || neighborIndex >= activeSorted.length) return;
+
+    var a = activeSorted[index];
+    var b = activeSorted[neighborIndex];
+    var tmp = { date: a.date, startTime: a.startTime, endTime: a.endTime, timeSlotLabel: a.timeSlotLabel };
+    a.date = b.date; a.startTime = b.startTime; a.endTime = b.endTime; a.timeSlotLabel = b.timeSlotLabel;
+    b.date = tmp.date; b.startTime = tmp.startTime; b.endTime = tmp.endTime; b.timeSlotLabel = tmp.timeSlotLabel;
+
+    renderLokiReorderList();
+  }
+
+  function setLokiReorderBusy(busy) {
+    lokiReorderSaveBtn.disabled = busy;
+    lokiReorderSaveBtn.textContent = busy ? 'Saving…' : 'Save Changes';
+    lokiReorderResetBtn.disabled = busy;
+  }
+
+  function performLokiReorderSave() {
+    var moves = reorderItems
+      .filter(function (it) { return !it.pendingDelete && (it.date !== it.origDate || it.startTime !== it.origStartTime); })
+      .map(function (it) { return { id: it.id, date: it.date, timeSlotStart: it.startTime, timeSlotEnd: it.endTime, timeSlotLabel: it.timeSlotLabel }; });
+    var cancels = reorderItems.filter(function (it) { return it.pendingDelete; }).map(function (it) { return it.id; });
+    if (!moves.length && !cancels.length) return;
+
+    // Fold every date this batch actually touches into reorderTouchedDates
+    // -- both a moved booking's old date (it's no longer shown there) and
+    // its new one (it now is), and a cancelled booking's date -- so
+    // closeLokiReorderModal knows, once this tab is closed, whether the
+    // main Appointment list's currently-shown range needs refreshing.
+    reorderItems.forEach(function (it) {
+      if (it.pendingDelete) {
+        reorderTouchedDates[it.origDate] = true;
+      } else if (it.date !== it.origDate || it.startTime !== it.origStartTime) {
+        reorderTouchedDates[it.origDate] = true;
+        reorderTouchedDates[it.date] = true;
+      }
+    });
+
+    setLokiReorderBusy(true);
+    lokiReorderStatus.textContent = '';
+    lokiReorderStatus.className = 'form-status';
+
+    var fd = new FormData();
+    fd.append('action', 'lokiApplyReorder');
+    fd.append('passcode', currentPasscode);
+    fd.append('moves', JSON.stringify(moves));
+    fd.append('cancels', JSON.stringify(cancels));
+
+    fetch(GOOGLE_SHEET_WEBAPP_URL, { method: 'POST', body: fd })
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        if (data.result !== 'success') throw new Error(data.message || 'Save failed.');
+
+        var skippedCount = (data.skipped || []).length;
+        lokiReorderStatus.textContent = 'Saved.' + (skippedCount
+          ? ' ' + skippedCount + ' booking(s) were skipped because they’d already changed elsewhere — the list below has been refreshed.'
+          : '');
+        lokiReorderStatus.className = 'form-status success';
+        showSavedToast();
+
+        // The sheet now has brand-new rows and several changed statuses --
+        // a real re-fetch (not a local patch) is the only reliable way to
+        // reflect that, both here and in the Appointment section's own
+        // currently-shown date range.
+        fetchAppointments(function () {
+          renderAppointments();
+          buildReorderItems();
+          renderLokiReorderList();
+          setLokiReorderBusy(false);
+        }, function (err) {
+          lokiReorderStatus.textContent = 'Saved, but could not refresh the list. ' + (err && err.message ? err.message : 'Please reopen this tab.');
+          lokiReorderStatus.className = 'form-status error';
+          setLokiReorderBusy(false);
+        });
+      })
+      .catch(function (err) {
+        lokiReorderStatus.textContent = 'Could not save changes. ' + (err && err.message ? err.message : '');
+        lokiReorderStatus.className = 'form-status error';
+        setLokiReorderBusy(false);
+      });
+  }
+
+  var reorderDataLoaded = false; // becomes true once loadReorderDate() has actually fetched -- see its own comment
+
+  function showReorderPrompt() {
+    lokiReorderList.innerHTML = '';
+    var prompt = document.createElement('p');
+    prompt.className = 'loki-empty';
+    prompt.textContent = 'Click Today, or pick a date above, to load that day’s bookings.';
+    lokiReorderList.appendChild(prompt);
+    lokiReorderSaveBar.hidden = true;
+  }
+
+  function openLokiReorderModal() {
+    lokiReorderModalOverlay.classList.add('is-open');
+    reorderSelectedDate = startOfToday(); // the date field defaults to today, ready to go, but nothing is fetched or shown until Today or the calendar picker is actually used -- see loadReorderDate()
+    reorderTouchedDates = {}; // fresh session -- see its own comment above
+    reorderDataLoaded = false;
+    renderLokiReorderNav();
+    lokiReorderStatus.textContent = '';
+    showReorderPrompt();
+  }
+  // Fetches (the first time this tool-open session needs it -- see
+  // reorderDataLoaded) and displays reorderSelectedDate's bookings. Called
+  // only from the Today button and the calendar picker's own change
+  // handler below -- never automatically on open, so nothing loads until
+  // the admin actually picks Today or a date, as asked. Once loaded, later
+  // Today clicks / date picks just re-filter the same already-fetched
+  // working set (see visibleReorderItems) rather than re-fetching, so
+  // paging between dates never discards a staged-but-unsaved push or
+  // delete made while looking at a different one.
+  function loadReorderDate() {
+    renderLokiReorderNav();
+    if (reorderDataLoaded) {
+      renderLokiReorderList();
+      return;
+    }
+    setLoadingStatus(lokiReorderStatus, 'Loading bookings…');
+    // Always a fresh fetch (not ensureAppointmentsLoaded's cache-if-present
+    // shortcut) -- this tool stages real schedule changes, so it should
+    // never start from data that might already be stale.
+    fetchAppointments(function () {
+      lokiReorderStatus.textContent = '';
+      buildReorderItems();
+      reorderDataLoaded = true;
+      renderLokiReorderList();
+    }, function (err) {
+      lokiReorderStatus.textContent = 'Could not load appointments. ' + (err && err.message ? err.message : '');
+      lokiReorderStatus.className = 'form-status error';
+    });
+  }
+  // True if any date this session actually changed (persisted, not just
+  // staged-and-discarded) falls inside the main Appointment section's
+  // currently-shown date window -- used on close to decide whether that
+  // list needs a refresh, so it never shows stale data for a date the
+  // admin was just reordering, without forcing a refresh (and losing that
+  // section's own scroll position/sort) for a date it isn't even looking at.
+  function reorderTouchedMainApptWindow() {
+    var windowEnd = addDays(apptWindowStart, WINDOW_DAYS - 1);
+    for (var dateStr in reorderTouchedDates) {
+      if (!reorderTouchedDates.hasOwnProperty(dateStr)) continue;
+      var d = parseDateStr(dateStr);
+      if (d >= apptWindowStart && d <= windowEnd) return true;
+    }
+    return false;
+  }
+  function closeLokiReorderModal() {
+    lokiReorderModalOverlay.classList.remove('is-open');
+    if (reorderTouchedMainApptWindow()) {
+      reloadAppointments();
+    }
+    reorderTouchedDates = {};
+  }
+  lokiReorderTab.addEventListener('click', openLokiReorderModal);
+  lokiReorderTodayBtn.addEventListener('click', function () {
+    reorderSelectedDate = startOfToday();
+    loadReorderDate();
+  });
+  // Calendar picker -- jump straight to any date instead of paging
+  // through one WINDOW_DAYS range at a time. An invalid/cleared value
+  // (e.g. the field emptied while typing) is ignored rather than crashing
+  // the view on an invalid Date; the picker itself snaps back to showing
+  // reorderSelectedDate on the next renderLokiReorderNav() either way.
+  lokiReorderDateInput.addEventListener('change', function () {
+    if (!lokiReorderDateInput.value) return;
+    reorderSelectedDate = parseDateStr(lokiReorderDateInput.value);
+    loadReorderDate();
+  });
+  closeLokiReorderModalBtn.addEventListener('click', closeLokiReorderModal);
+  lokiReorderSaveBtn.addEventListener('click', performLokiReorderSave);
+  lokiReorderResetBtn.addEventListener('click', function () {
+    buildReorderItems();
+    renderLokiReorderList();
+  });
+  var lokiReorderMouseDownOnOverlay = false;
+  lokiReorderModalOverlay.addEventListener('mousedown', function (e) {
+    lokiReorderMouseDownOnOverlay = (e.target === lokiReorderModalOverlay);
+  });
+  lokiReorderModalOverlay.addEventListener('click', function (e) {
+    if (e.target === lokiReorderModalOverlay && lokiReorderMouseDownOnOverlay) closeLokiReorderModal();
+    lokiReorderMouseDownOnOverlay = false;
+  });
+
+  /* ---------- Show Original Bookings ----------
+     A read-only viewer: pick a date, see that day's current bookings each
+     alongside the very first slot they were ever booked for (before any
+     number of admin reschedules/pushes) -- see OriginalBookedSlot in
+     Code.gs. Nothing here is editable or staged, so unlike the Insert/
+     Delete/Push up/Push down tool there's no save bar, and a date switch
+     just re-filters the same fetched set. */
+  var lokiOriginalModalOverlay = document.getElementById('lokiOriginalModalOverlay');
+  var closeLokiOriginalModalBtn = document.getElementById('closeLokiOriginalModal');
+  var lokiOriginalTab = document.getElementById('lokiOriginalTab');
+  var lokiOriginalStatus = document.getElementById('lokiOriginalStatus');
+  var lokiOriginalList = document.getElementById('lokiOriginalList');
+  var lokiOriginalTodayBtn = document.getElementById('lokiOriginalTodayBtn');
+  var lokiOriginalDateInput = document.getElementById('lokiOriginalDateInput');
+  var lokiOriginalRangeLabel = document.getElementById('lokiOriginalRangeLabel');
+
+  var originalSelectedDate = startOfToday();
+  var originalDataLoaded = false; // becomes true once loadOriginalDate() has actually fetched
+
+  // The picked date's bookings, sorted by CURRENT start time (earliest to
+  // latest), as asked. ReScheduled rows are left out -- they're dead rows
+  // superseded by a replacement booking (which carries this same
+  // OriginalBookedSlot forward and shows up under whatever date it's
+  // currently sitting on), same as the main Appointment list already hides
+  // them. Every other status (Upcoming/Cancelled/Finished/Past) is shown,
+  // so this still answers "what was this day's lineup, and where did each
+  // of these actually start out" even after cancellations.
+  function visibleOriginalItems() {
+    var selectedStr = toDateStr(originalSelectedDate);
+    return (appointmentsCache || [])
+      .filter(function (a) { return a.date === selectedStr && (a.status || '') !== 'ReScheduled'; })
+      .slice()
+      .sort(function (x, y) { return (x.startTime || '').localeCompare(y.startTime || ''); });
+  }
+
+  function renderLokiOriginalNav() {
+    lokiOriginalDateInput.value = toDateStr(originalSelectedDate);
+    lokiOriginalRangeLabel.textContent = formatDateHeading(toDateStr(originalSelectedDate));
+  }
+
+  function buildOriginalRow(a) {
+    var row = document.createElement('div');
+    row.className = 'appt-row loki-original-row' + apptRowStatusClass(a.status || '');
+
+    var info = document.createElement('div');
+    info.className = 'appt-row-info';
+    info.innerHTML = '<strong>' + escapeHtml(a.name || 'Unknown') + '</strong>' +
+      '<span>' + escapeHtml(a.phone || '-') + '</span>';
+    row.appendChild(info);
+
+    var current = document.createElement('div');
+    current.className = 'loki-original-current';
+    current.innerHTML = '<span class="loki-original-label">Current:</span> ' + escapeHtml(a.timeSlotLabel || '-');
+    row.appendChild(current);
+
+    var orig = document.createElement('div');
+    orig.className = 'loki-original-slot';
+    orig.innerHTML = '<span class="loki-original-label">Originally:</span> <strong>' +
+      escapeHtml(a.originalBookedSlot || a.timeSlotLabel || '-') + '</strong>';
+    row.appendChild(orig);
+
+    if ((a.status || '') !== '') {
+      var badge = document.createElement('span');
+      badge.className = 'appt-row-status-badge' + apptRowStatusClass(a.status);
+      badge.textContent = APPT_STATUS_LABELS[a.status || ''] || a.status;
+      row.appendChild(badge);
+    }
+    return row;
+  }
+
+  function renderLokiOriginalList() {
+    renderLokiOriginalNav();
+    var items = visibleOriginalItems();
+    lokiOriginalList.innerHTML = '';
+    if (!items.length) {
+      var empty = document.createElement('p');
+      empty.className = 'loki-empty';
+      empty.textContent = 'No bookings on this date.';
+      lokiOriginalList.appendChild(empty);
+      return;
+    }
+    items.forEach(function (a) {
+      lokiOriginalList.appendChild(buildOriginalRow(a));
+    });
+  }
+
+  function showOriginalPrompt() {
+    lokiOriginalList.innerHTML = '';
+    var prompt = document.createElement('p');
+    prompt.className = 'loki-empty';
+    prompt.textContent = 'Click Today, or pick a date above, to load that day’s bookings.';
+    lokiOriginalList.appendChild(prompt);
+  }
+
+  function openLokiOriginalModal() {
+    lokiOriginalModalOverlay.classList.add('is-open');
+    originalSelectedDate = startOfToday();
+    originalDataLoaded = false;
+    renderLokiOriginalNav();
+    lokiOriginalStatus.textContent = '';
+    showOriginalPrompt();
+  }
+  // Fetches fresh the first time this tool-open session needs it, then
+  // just re-filters the same set on later Today clicks / date picks --
+  // same pattern as the Insert/Delete/Push up/Push down tool's
+  // loadReorderDate(), minus any staging since this view is read-only.
+  function loadOriginalDate() {
+    renderLokiOriginalNav();
+    if (originalDataLoaded) {
+      renderLokiOriginalList();
+      return;
+    }
+    setLoadingStatus(lokiOriginalStatus, 'Loading bookings…');
+    fetchAppointments(function () {
+      lokiOriginalStatus.textContent = '';
+      originalDataLoaded = true;
+      renderLokiOriginalList();
+    }, function (err) {
+      lokiOriginalStatus.textContent = 'Could not load appointments. ' + (err && err.message ? err.message : '');
+      lokiOriginalStatus.className = 'form-status error';
+    });
+  }
+  function closeLokiOriginalModal() {
+    lokiOriginalModalOverlay.classList.remove('is-open');
+  }
+  lokiOriginalTab.addEventListener('click', openLokiOriginalModal);
+  lokiOriginalTodayBtn.addEventListener('click', function () {
+    originalSelectedDate = startOfToday();
+    loadOriginalDate();
+  });
+  lokiOriginalDateInput.addEventListener('change', function () {
+    if (!lokiOriginalDateInput.value) return;
+    originalSelectedDate = parseDateStr(lokiOriginalDateInput.value);
+    loadOriginalDate();
+  });
+  closeLokiOriginalModalBtn.addEventListener('click', closeLokiOriginalModal);
+  var lokiOriginalMouseDownOnOverlay = false;
+  lokiOriginalModalOverlay.addEventListener('mousedown', function (e) {
+    lokiOriginalMouseDownOnOverlay = (e.target === lokiOriginalModalOverlay);
+  });
+  lokiOriginalModalOverlay.addEventListener('click', function (e) {
+    if (e.target === lokiOriginalModalOverlay && lokiOriginalMouseDownOnOverlay) closeLokiOriginalModal();
+    lokiOriginalMouseDownOnOverlay = false;
+  });
+
   /* ---------- Cancel Dates section ---------- */
   var cancelToggle = document.getElementById('cancelToggle');
   var cancelBody = document.getElementById('cancelBody');
@@ -2529,6 +3211,8 @@
     if (photosModalOverlay.classList.contains('is-open')) closePhotosModal();
     if (replyModalOverlay.classList.contains('is-open')) closeReplyModal();
     if (prescriptionModalOverlay.classList.contains('is-open')) closePrescriptionModal();
+    if (lokiReorderModalOverlay.classList.contains('is-open')) closeLokiReorderModal();
+    if (lokiOriginalModalOverlay.classList.contains('is-open')) closeLokiOriginalModal();
   });
 
 })();
