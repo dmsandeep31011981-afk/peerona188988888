@@ -293,6 +293,7 @@
   var apptSortOrderSelect = document.getElementById('apptSortOrderSelect');
   var apptSaveBar = document.getElementById('apptSaveBar');
   var apptSaveCount = document.getElementById('apptSaveCount');
+  var apptResetAllBtn = document.getElementById('apptResetAllBtn');
   var apptSaveBtn = document.getElementById('apptSaveBtn');
   var apptSavingOverlay = document.getElementById('apptSavingOverlay');
 
@@ -703,6 +704,20 @@
   }
 
   apptSaveBtn.addEventListener('click', triggerApptSave);
+
+  // Discards every pending Status/Cancelled Reason edit across the whole
+  // list in one go (not just one row) and re-renders -- every select
+  // reverts to its actual saved value, every per-row Save button
+  // disappears along with it, and the bar itself (Save Changes included)
+  // hides again since updateApptSaveBar() finds nothing left pending.
+  // Same "Reset All" pattern the Insert/Delete/Push up/Push down tab
+  // already uses for its own staged edits.
+  function resetApptChanges() {
+    apptChanges = {};
+    renderAppointments();
+    updateApptSaveBar();
+  }
+  apptResetAllBtn.addEventListener('click', resetApptChanges);
 
   apptToggle.addEventListener('click', function () {
     var expanded = apptToggle.getAttribute('aria-expanded') === 'true';

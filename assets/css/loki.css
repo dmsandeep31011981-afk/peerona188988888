@@ -591,6 +591,10 @@ html, body { overflow-x: visible; }
   border: 1.5px solid #c0392b; background: #c0392b; color: var(--white); cursor: pointer; transition: var(--transition);
 }
 .appt-row-delete-btn:hover { background: #a3301f; border-color: #a3301f; }
+/* Shared by the Insert/Delete/Push up/Push down tab's own save bar AND the
+   Appointment Detail Section's save bar (same Reset All + Save Changes
+   pairing, same dark bar background needing the outline button's border/
+   text lightened to match) -- not reorder-specific despite the name. */
 .loki-reorder-savebar-actions { display: flex; align-items: center; gap: 10px; }
 .loki-reorder-savebar-actions .btn-outline { border-color: var(--cream); color: var(--cream); padding: 10px 18px; font-size: 0.82rem; }
 .loki-reorder-savebar-actions .btn-outline:hover { background: var(--cream); color: var(--text-dark); }
