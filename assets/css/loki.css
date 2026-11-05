@@ -25,6 +25,13 @@ body.loki-page { background: var(--cream); }
    modal, which is later in loki.html's markup. */
 #lokiApptFormModalOverlay { z-index: 1001; }
 
+/* Same reasoning again: "View More" on a search result row opens this
+   detail modal without closing the Cancel/Reschedule search modal behind
+   it, and "View All" inside IT can open the Photos modal on top of that --
+   so this needs to sit above the search modal but still safely below
+   Photos' own 1050. */
+#lokiViewMoreModalOverlay { z-index: 1001; }
+
 /* ---------- Passcode gate ---------- */
 .loki-gate {
   position: fixed; inset: 0; background: var(--cream);
@@ -449,6 +456,15 @@ html, body { overflow-x: visible; }
 }
 .loki-search-regex-toggle input { width: auto; flex-shrink: 0; cursor: pointer; }
 .loki-search-clear-btn { flex-shrink: 0; margin-top: 26px; padding: 10px 18px; font-size: 0.82rem; }
+/* Or/And toggle, sitting between the Name and Date fields -- "Or" (the
+   default) matches name OR date independently; toggling to "And" narrows
+   to a name search within the chosen date (today's long-standing
+   behavior). Lined up with the inputs the same way Clear is. */
+.loki-search-mode-toggle {
+  flex-shrink: 0; margin-top: 26px; padding: 10px 16px; font-size: 0.82rem; font-weight: 700;
+  min-width: 52px; text-align: center;
+}
+.loki-search-mode-toggle.is-and { background: var(--blush-dark); color: var(--white); border-color: var(--blush-dark); }
 
 /* Shown only while a "View Rescheduled Booking" jump is stacked (hidden
    otherwise, see the `hidden` attribute in loki.html) -- lets Dr Lokesh /
@@ -501,6 +517,15 @@ html, body { overflow-x: visible; }
 }
 .loki-search-status-save-btn:hover:not(:disabled) { filter: brightness(0.92); }
 .loki-search-status-save-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ---------- View More (booking detail) modal ---------- */
+.loki-view-more-details { display: flex; flex-direction: column; gap: 12px; margin-bottom: 18px; }
+.loki-view-more-row { display: flex; gap: 10px; flex-wrap: wrap; font-size: 0.9rem; padding-bottom: 10px; border-bottom: 1px dashed var(--cream-dark); }
+.loki-view-more-row:last-child { border-bottom: none; padding-bottom: 0; }
+.loki-view-more-row-label { font-weight: 600; color: var(--text-light); min-width: 150px; flex-shrink: 0; }
+.loki-view-more-row-value { color: var(--text-dark); overflow-wrap: anywhere; flex: 1 1 200px; min-width: 0; }
+.loki-view-more-original .loki-view-more-row-value strong { font-weight: 700; }
+.loki-view-more-photos-btn { width: 100%; }
 
 .loki-search-result-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 .loki-search-cancel-btn, .loki-search-reschedule-btn, .loki-search-view-photos-btn {
@@ -619,6 +644,7 @@ html, body { overflow-x: visible; }
   .loki-search-fields { flex-direction: column; align-items: stretch; }
   .loki-search-field { flex: 1 1 auto; }
   .loki-search-clear-btn { align-self: stretch; margin-top: 0; }
+  .loki-search-mode-toggle { align-self: stretch; margin-top: 0; }
   .loki-search-result-top { flex-direction: column; align-items: flex-start; }
   .loki-search-result-actions { width: 100%; }
   .loki-search-cancel-btn, .loki-search-reschedule-btn, .loki-search-view-photos-btn { flex: 1 1 auto; text-align: center; }

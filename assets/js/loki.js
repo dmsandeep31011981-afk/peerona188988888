@@ -1845,6 +1845,7 @@
   var lokiSearchNameInput = document.getElementById('lokiSearchName');
   var lokiSearchDateInput = document.getElementById('lokiSearchDate');
   var lokiSearchRegexToggle = document.getElementById('lokiSearchRegexToggle');
+  var lokiSearchModeToggle = document.getElementById('lokiSearchModeToggle');
   var lokiSearchClearBtn = document.getElementById('lokiSearchClearBtn');
   var lokiSearchBackBtn = document.getElementById('lokiSearchBackBtn');
   var lokiSearchResults = document.getElementById('lokiSearchResults');
@@ -1858,6 +1859,20 @@
   var lokiSearchNavStack = [];
   function updateLokiSearchBackBtnVisibility() {
     lokiSearchBackBtn.hidden = !lokiSearchNavStack.length;
+  }
+
+  // 'or' (the default) matches name OR date independently -- useful when
+  // the two fields aren't meant to narrow each other down. 'and' is the
+  // original behavior: both fields must match, i.e. "search by name on a
+  // particular chosen date". Only matters when BOTH fields have a value;
+  // a single field behaves identically either way -- see renderSearchResults.
+  var lokiSearchMode = 'or';
+  function renderLokiSearchModeToggle() {
+    if (!lokiSearchModeToggle) return;
+    var isAnd = lokiSearchMode === 'and';
+    lokiSearchModeToggle.textContent = isAnd ? 'And' : 'Or';
+    lokiSearchModeToggle.classList.toggle('is-and', isAnd);
+    lokiSearchModeToggle.setAttribute('aria-pressed', isAnd ? 'true' : 'false');
   }
 
   // Same "blank/Past only" rule as the main Cancel Dates section -- an
@@ -1936,11 +1951,14 @@
     reasonSelectWrap.appendChild(searchReasonSelect);
     statusRow.appendChild(reasonSelectWrap);
 
+    // Doubles as "View More" (opens the full booking-detail modal) when
+    // nothing's been edited yet, and "Save Status" (saves the pending
+    // Status/Cancelled Reason change) the moment one of those two fields
+    // actually differs from the saved value -- see refreshSearchStatusDirty.
     var searchStatusSaveBtn = document.createElement('button');
     searchStatusSaveBtn.type = 'button';
     searchStatusSaveBtn.className = 'loki-search-status-save-btn';
-    searchStatusSaveBtn.textContent = 'Save Status';
-    searchStatusSaveBtn.disabled = true;
+    searchStatusSaveBtn.textContent = 'View More';
     statusRow.appendChild(searchStatusSaveBtn);
 
     var searchStatusMsg = document.createElement('span');
@@ -1950,7 +1968,8 @@
 
     function refreshSearchStatusDirty() {
       var dirty = searchStatusSelect.value !== (a.status || '') || searchReasonSelect.value !== (a.cancelledReason || '');
-      searchStatusSaveBtn.disabled = !dirty;
+      searchStatusSaveBtn.textContent = dirty ? 'Save Status' : 'View More';
+      searchStatusSaveBtn.disabled = false;
     }
     searchStatusSelect.addEventListener('change', refreshSearchStatusDirty);
     searchReasonSelect.addEventListener('change', refreshSearchStatusDirty);
@@ -1979,7 +1998,6 @@
           renderSearchResults();
         })
         .catch(function (err) {
-          searchStatusSaveBtn.textContent = 'Save Status';
           refreshSearchStatusDirty();
           searchStatusMsg.textContent = err && err.message ? err.message : 'Could not save status.';
           searchStatusMsg.className = 'form-status error';
@@ -1990,6 +2008,11 @@
     }
 
     searchStatusSaveBtn.addEventListener('click', function () {
+      var dirty = searchStatusSelect.value !== (a.status || '') || searchReasonSelect.value !== (a.cancelledReason || '');
+      if (!dirty) {
+        openLokiViewMoreModal(a);
+        return;
+      }
       // Being set to Finished here -- offer the prescription modal first,
       // on top of this search modal (see the #prescriptionModalOverlay
       // z-index bump in loki.css), and only actually persist the Finished
@@ -2130,16 +2153,22 @@
     }
 
     var matches = (appointmentsCache || []).filter(function (a) {
+      var nameMatches = true;
       if (nameQueryRaw) {
         var nm = a.name || '';
-        if (nameRegex) {
-          if (!nameRegex.test(nm)) return false;
-        } else if (nm.toLowerCase().indexOf(nameQuery) === -1) {
-          return false;
-        }
+        nameMatches = nameRegex ? nameRegex.test(nm) : (nm.toLowerCase().indexOf(nameQuery) !== -1);
       }
-      if (dateQuery && a.date !== dateQuery) return false;
-      return true;
+      var dateMatches = !dateQuery || a.date === dateQuery;
+
+      // With both fields filled in, "Or" (default) shows the union --
+      // name matches OR date matches -- while "And" narrows to their
+      // intersection (a name search scoped to the chosen date). With only
+      // one field filled in there's no difference, so this only branches
+      // when both are actually in play.
+      if (nameQueryRaw && dateQuery && lokiSearchMode !== 'and') {
+        return nameMatches || dateMatches;
+      }
+      return nameMatches && dateMatches;
     }).sort(function (x, y) {
       if (x.date !== y.date) return x.date < y.date ? -1 : 1;
       return (x.startTime || '').localeCompare(y.startTime || '');
@@ -2162,6 +2191,8 @@
     lokiSearchNameInput.value = '';
     lokiSearchDateInput.value = '';
     if (lokiSearchRegexToggle) lokiSearchRegexToggle.checked = false;
+    lokiSearchMode = 'or';
+    renderLokiSearchModeToggle();
     lokiCancelReschedModalOverlay.classList.add('is-open');
     // Plain loading message, not setLoadingStatus() -- that helper
     // overwrites el.className (it's built for a one-line <p class="form-status">
@@ -2208,7 +2239,8 @@
     lokiSearchNavStack.push({
       name: lokiSearchNameInput.value,
       date: lokiSearchDateInput.value,
-      useRegex: !!(lokiSearchRegexToggle && lokiSearchRegexToggle.checked)
+      useRegex: !!(lokiSearchRegexToggle && lokiSearchRegexToggle.checked),
+      mode: lokiSearchMode
     });
     updateLokiSearchBackBtnVisibility();
 
@@ -2225,6 +2257,13 @@
         lokiSearchNameInput.value = target.name || '';
         lokiSearchDateInput.value = target.date || '';
         if (lokiSearchRegexToggle) lokiSearchRegexToggle.checked = false;
+        // Force "And" here regardless of whatever mode was active before --
+        // this prefills BOTH fields to one specific booking's own exact
+        // name+date so the one row the doctor jumped to is what shows;
+        // "Or" would widen that back out to every other booking sharing
+        // just the name or just the date.
+        lokiSearchMode = 'and';
+        renderLokiSearchModeToggle();
         renderSearchResults();
       } else {
         lokiSearchNameInput.value = '';
@@ -2253,6 +2292,8 @@
     lokiSearchNameInput.value = prevState.name || '';
     lokiSearchDateInput.value = prevState.date || '';
     if (lokiSearchRegexToggle) lokiSearchRegexToggle.checked = !!prevState.useRegex;
+    lokiSearchMode = prevState.mode || 'or';
+    renderLokiSearchModeToggle();
     updateLokiSearchBackBtnVisibility();
     renderSearchResults();
   }
@@ -2263,10 +2304,19 @@
   lokiSearchNameInput.addEventListener('input', renderSearchResults);
   lokiSearchDateInput.addEventListener('change', renderSearchResults);
   if (lokiSearchRegexToggle) lokiSearchRegexToggle.addEventListener('change', renderSearchResults);
+  if (lokiSearchModeToggle) {
+    lokiSearchModeToggle.addEventListener('click', function () {
+      lokiSearchMode = (lokiSearchMode === 'and') ? 'or' : 'and';
+      renderLokiSearchModeToggle();
+      renderSearchResults();
+    });
+  }
   lokiSearchClearBtn.addEventListener('click', function () {
     lokiSearchNameInput.value = '';
     lokiSearchDateInput.value = '';
     if (lokiSearchRegexToggle) lokiSearchRegexToggle.checked = false;
+    lokiSearchMode = 'or';
+    renderLokiSearchModeToggle();
     lokiSearchNavStack = [];
     updateLokiSearchBackBtnVisibility();
     renderSearchResults();
@@ -2278,6 +2328,99 @@
   lokiCancelReschedModalOverlay.addEventListener('click', function (e) {
     if (e.target === lokiCancelReschedModalOverlay && lokiCancelReschedMouseDownOnOverlay) closeLokiCancelReschedModal();
     lokiCancelReschedMouseDownOnOverlay = false;
+  });
+
+  /* ---------- View More (booking detail) modal ----------
+     Opened by a search result row's own status-save button when nothing's
+     staged to save yet (see buildSearchResultRow) -- a read-only, all-in-
+     one view of that one booking: contact details, current + Originally
+     Booked slot, status, prescription notes, and a View All button for its
+     photos/files, reusing the same openPhotosModal() the Prescription
+     editor and Finished rows already use. Stacks on top of the still-open
+     search modal (see the z-index bump in loki.css) rather than closing it. */
+  var lokiViewMoreModalOverlay = document.getElementById('lokiViewMoreModalOverlay');
+  var closeLokiViewMoreModalBtn = document.getElementById('closeLokiViewMoreModal');
+  var lokiViewMoreSub = document.getElementById('lokiViewMoreSub');
+  var lokiViewMoreDetails = document.getElementById('lokiViewMoreDetails');
+  var lokiViewMorePhotosBtn = document.getElementById('lokiViewMorePhotosBtn');
+
+  function buildViewMoreRow(label, value, extraClass) {
+    var row = document.createElement('div');
+    row.className = 'loki-view-more-row' + (extraClass ? ' ' + extraClass : '');
+    var lbl = document.createElement('span');
+    lbl.className = 'loki-view-more-row-label';
+    lbl.textContent = label;
+    row.appendChild(lbl);
+    var val = document.createElement('span');
+    val.className = 'loki-view-more-row-value';
+    if (typeof value === 'string') {
+      val.textContent = value;
+    } else {
+      val.appendChild(value); // a DOM node -- e.g. a <strong> or the ReScheduled jump link
+    }
+    row.appendChild(val);
+    return row;
+  }
+
+  function openLokiViewMoreModal(a) {
+    lokiViewMoreSub.textContent = (a.name || 'Unknown') + ' · ' + formatDateHeading(a.date) + ' · ' + (a.timeSlotLabel || '');
+    lokiViewMoreDetails.innerHTML = '';
+
+    lokiViewMoreDetails.appendChild(buildViewMoreRow('Name', a.name || 'Unknown'));
+    lokiViewMoreDetails.appendChild(buildViewMoreRow('Phone', a.phone || '-'));
+    lokiViewMoreDetails.appendChild(buildViewMoreRow('Email', a.email || '-'));
+    lokiViewMoreDetails.appendChild(buildViewMoreRow('Date', formatDateHeading(a.date)));
+    lokiViewMoreDetails.appendChild(buildViewMoreRow('Current Time Slot', a.timeSlotLabel || '-'));
+
+    var origStrong = document.createElement('strong');
+    origStrong.textContent = a.originalBookedSlot || a.timeSlotLabel || '-';
+    lokiViewMoreDetails.appendChild(buildViewMoreRow('Originally Booked', origStrong, 'loki-view-more-original'));
+
+    var statusWrap = document.createElement('span');
+    statusWrap.appendChild(document.createTextNode(APPT_STATUS_LABELS[a.status || ''] || (a.status || 'Upcoming')));
+    if (a.rescheduledId) {
+      var link = buildRescheduledLink(a.rescheduledId);
+      link.addEventListener('click', closeLokiViewMoreModal);
+      statusWrap.appendChild(document.createTextNode(' '));
+      statusWrap.appendChild(link);
+    }
+    lokiViewMoreDetails.appendChild(buildViewMoreRow('Status', statusWrap));
+
+    if (a.status === 'Cancelled' && a.cancelledReason) {
+      lokiViewMoreDetails.appendChild(buildViewMoreRow('Cancelled Reason', a.cancelledReason));
+    }
+    if (a.prescription) {
+      lokiViewMoreDetails.appendChild(buildViewMoreRow('Prescription', a.prescription));
+    }
+
+    if (a.prescriptionImages && a.prescriptionImages.length) {
+      lokiViewMorePhotosBtn.hidden = false;
+      lokiViewMorePhotosBtn.textContent = '👁 View All (' + a.prescriptionImages.length + ')';
+      lokiViewMorePhotosBtn.onclick = function () {
+        openPhotosModal(
+          a.prescriptionImages,
+          'Prescription photos · ' + (a.name || 'Unknown') + ' · ' + formatDateHeading(a.date),
+          'No prescription photos for this appointment.'
+        );
+      };
+    } else {
+      lokiViewMorePhotosBtn.hidden = true;
+      lokiViewMorePhotosBtn.onclick = null;
+    }
+
+    lokiViewMoreModalOverlay.classList.add('is-open');
+  }
+  function closeLokiViewMoreModal() {
+    lokiViewMoreModalOverlay.classList.remove('is-open');
+  }
+  closeLokiViewMoreModalBtn.addEventListener('click', closeLokiViewMoreModal);
+  var lokiViewMoreMouseDownOnOverlay = false;
+  lokiViewMoreModalOverlay.addEventListener('mousedown', function (e) {
+    lokiViewMoreMouseDownOnOverlay = (e.target === lokiViewMoreModalOverlay);
+  });
+  lokiViewMoreModalOverlay.addEventListener('click', function (e) {
+    if (e.target === lokiViewMoreModalOverlay && lokiViewMoreMouseDownOnOverlay) closeLokiViewMoreModal();
+    lokiViewMoreMouseDownOnOverlay = false;
   });
 
   /* ---------- Insert/Delete/Push up/Push down ----------
@@ -3213,6 +3356,7 @@
     if (prescriptionModalOverlay.classList.contains('is-open')) closePrescriptionModal();
     if (lokiReorderModalOverlay.classList.contains('is-open')) closeLokiReorderModal();
     if (lokiOriginalModalOverlay.classList.contains('is-open')) closeLokiOriginalModal();
+    if (lokiViewMoreModalOverlay.classList.contains('is-open')) closeLokiViewMoreModal();
   });
 
 })();

@@ -299,6 +299,7 @@
             <input type="checkbox" id="lokiSearchRegexToggle"> Use regular expression
           </label>
         </div>
+        <button type="button" class="btn btn-outline loki-search-mode-toggle" id="lokiSearchModeToggle" aria-pressed="false" title="Or: name and date match independently. And: narrows to a name within the chosen date.">Or</button>
         <div class="loki-search-field">
           <label for="lokiSearchDate">Date</label>
           <input type="date" id="lokiSearchDate">
@@ -309,6 +310,19 @@
       <div class="loki-search-results" id="lokiSearchResults">
         <p class="loki-empty">Type a name or pick a date to search.</p>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== View More (booking detail) modal ===== -->
+<div class="modal-overlay" id="lokiViewMoreModalOverlay">
+  <div class="modal-box">
+    <button type="button" class="modal-close" id="closeLokiViewMoreModal" aria-label="Close"><i data-icon="x"></i></button>
+    <h3>Booking Details</h3>
+    <p class="modal-sub" id="lokiViewMoreSub">&mdash;</p>
+    <div class="modal-scroll-content">
+      <div class="loki-view-more-details" id="lokiViewMoreDetails"></div>
+      <button type="button" class="btn btn-outline loki-view-more-photos-btn" id="lokiViewMorePhotosBtn" hidden>&#128065; View All</button>
     </div>
   </div>
 </div>
