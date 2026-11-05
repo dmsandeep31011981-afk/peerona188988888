@@ -288,6 +288,7 @@
   var apptNextBtn = document.getElementById('apptNextBtn');
   var apptTodayBtn = document.getElementById('apptTodayBtn');
   var apptRefreshBtn = document.getElementById('apptRefreshBtn');
+  var apptStatusFilterSelect = document.getElementById('apptStatusFilterSelect');
   var apptSortSelect = document.getElementById('apptSortSelect');
   var apptSortOrderSelect = document.getElementById('apptSortOrderSelect');
   var apptSaveBar = document.getElementById('apptSaveBar');
@@ -299,6 +300,13 @@
   var apptWindowStart = startOfToday(); // appointments default forward: today .. +6
   var apptSortBy = 'date'; // 'date' (grouped, default) | 'name' | 'status' -- see renderAppointments
   var apptSortOrder = 'asc'; // 'asc' (default) | 'desc' -- see renderAppointments
+  // '' (Upcoming) | 'Cancelled' | 'Finished' | 'Past' | 'all' | the combined
+  // 'finishedUpcoming' (default -- Upcoming + Finished together, the two
+  // statuses Management actually needs day to day). 'ReScheduled' is
+  // deliberately not a choice here -- those rows are always left out of
+  // this list regardless of filter, same as before this filter existed
+  // (see renderAppointments' own comment on that).
+  var apptStatusFilter = 'finishedUpcoming';
   var apptChanges = {}; // id -> partial change object, e.g. { status: 'Cancelled', cancelledReason: '...' }
   var APPT_STATUS_VALUES = ['', 'Cancelled', 'ReScheduled', 'Finished', 'Past'];
   var APPT_STATUS_LABELS = { '': 'Upcoming', 'Cancelled': 'Cancelled', 'ReScheduled': 'ReScheduled', 'Finished': 'Finished', 'Past': 'Past' };
@@ -396,12 +404,21 @@
       return d >= apptWindowStart && d <= windowEnd;
     });
 
+    // The Status filter (see apptStatusFilter's own comment) narrows that
+    // same date-windowed set further -- applied after the ReScheduled
+    // exclusion above, which always holds regardless of what's picked here.
+    var visible = inWindow.filter(function (a) {
+      if (apptStatusFilter === 'all') return true;
+      if (apptStatusFilter === 'finishedUpcoming') return (a.status || '') === '' || a.status === 'Finished';
+      return (a.status || '') === apptStatusFilter;
+    });
+
     apptList.innerHTML = '';
 
-    if (!inWindow.length) {
+    if (!visible.length) {
       var empty = document.createElement('p');
       empty.className = 'loki-empty';
-      empty.textContent = 'No appointments in this range.';
+      empty.textContent = inWindow.length ? 'No appointments with this status in this range.' : 'No appointments in this range.';
       apptList.appendChild(empty);
       return;
     }
@@ -411,7 +428,7 @@
     if (apptSortBy === 'name' || apptSortBy === 'status') {
       // Flat list (no date-group headers to lean on), so each row shows
       // its own date alongside the time -- see buildApptRow's showDate.
-      var sorted = inWindow.slice().sort(function (a, b) {
+      var sorted = visible.slice().sort(function (a, b) {
         if (apptSortBy === 'name') {
           return orderSign * (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
         }
@@ -431,7 +448,7 @@
     // Ascending/Descending flips which day comes first; times within a day
     // always run in natural (earliest-first) order.
     var byDate = {};
-    inWindow.forEach(function (a) { (byDate[a.date] = byDate[a.date] || []).push(a); });
+    visible.forEach(function (a) { (byDate[a.date] = byDate[a.date] || []).push(a); });
     var dateKeys = Object.keys(byDate).sort();
     if (apptSortOrder === 'desc') dateKeys.reverse();
 
@@ -698,14 +715,17 @@
     if (!expanded) { apptWindowStart = startOfToday(); loadAppointments(); }
   });
   // Earlier/Today/Later/Refresh all load a different (or refreshed) set of
-  // appointments, so any Sort by/Order the doctor had picked for the old
-  // list is reset back to the default (grouped by Date, Ascending) rather
-  // than silently carrying over to data it was never chosen for.
+  // appointments, so any Sort by/Order/Status the doctor had picked for the
+  // old list is reset back to the default (grouped by Date, Ascending,
+  // Finished And Upcoming) rather than silently carrying over to data it
+  // was never chosen for.
   function resetApptSort() {
     apptSortBy = 'date';
     apptSortOrder = 'asc';
+    apptStatusFilter = 'finishedUpcoming';
     apptSortSelect.value = 'date';
     apptSortOrderSelect.value = 'asc';
+    apptStatusFilterSelect.value = 'finishedUpcoming';
   }
   apptPrevBtn.addEventListener('click', function () { apptWindowStart = addDays(apptWindowStart, -WINDOW_DAYS); resetApptSort(); reloadAppointments(); });
   apptNextBtn.addEventListener('click', function () { apptWindowStart = addDays(apptWindowStart, WINDOW_DAYS); resetApptSort(); reloadAppointments(); });
@@ -719,6 +739,10 @@
   });
   apptSortOrderSelect.addEventListener('change', function () {
     apptSortOrder = apptSortOrderSelect.value;
+    renderAppointments();
+  });
+  apptStatusFilterSelect.addEventListener('change', function () {
+    apptStatusFilter = apptStatusFilterSelect.value;
     renderAppointments();
   });
 
