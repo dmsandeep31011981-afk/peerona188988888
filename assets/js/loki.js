@@ -300,12 +300,13 @@
   var apptWindowStart = startOfToday(); // appointments default forward: today .. +6
   var apptSortBy = 'date'; // 'date' (grouped, default) | 'name' | 'status' -- see renderAppointments
   var apptSortOrder = 'asc'; // 'asc' (default) | 'desc' -- see renderAppointments
-  // '' (Upcoming) | 'Cancelled' | 'Finished' | 'Past' | 'all' | the combined
-  // 'finishedUpcoming' (default -- Upcoming + Finished together, the two
-  // statuses Management actually needs day to day). 'ReScheduled' is
-  // deliberately not a choice here -- those rows are always left out of
-  // this list regardless of filter, same as before this filter existed
-  // (see renderAppointments' own comment on that).
+  // '' (Upcoming) | 'Cancelled' | 'Finished' | 'Past' | 'ReScheduled' | 'all'
+  // | the combined 'finishedUpcoming' (default -- Upcoming + Finished
+  // together, the two statuses Management actually needs day to day).
+  // ReScheduled rows (each one a dead end pointing at the replacement
+  // booking it became) are excluded by every other value here, same as
+  // before this filter existed -- they only show up when ReScheduled or
+  // All is actually picked.
   var apptStatusFilter = 'finishedUpcoming';
   var apptChanges = {}; // id -> partial change object, e.g. { status: 'Cancelled', cancelledReason: '...' }
   var APPT_STATUS_VALUES = ['', 'Cancelled', 'ReScheduled', 'Finished', 'Past'];
@@ -390,23 +391,20 @@
     var windowEnd = addDays(apptWindowStart, WINDOW_DAYS - 1);
     apptRangeLabel.textContent = formatRangeLabel(apptWindowStart, windowEnd);
 
-    // ReScheduled rows are left out of this list entirely -- each one is
-    // just the old half of a booking that's already been moved to a new
-    // row elsewhere (via the usual Reschedule action, or a Push Up/Push
-    // Down in the Insert/Delete/Push up/Push down tab), so it only ever
-    // cluttered this view with a dead entry pointing at the real, active
-    // booking. It's still fully in the sheet and the audit log, and still
-    // shows up in the Cancel/Reschedule search modal's results if someone
-    // specifically searches for it.
     var inWindow = (appointmentsCache || []).filter(function (a) {
-      if ((a.status || '') === 'ReScheduled') return false;
       var d = parseDateStr(a.date);
       return d >= apptWindowStart && d <= windowEnd;
     });
 
-    // The Status filter (see apptStatusFilter's own comment) narrows that
-    // same date-windowed set further -- applied after the ReScheduled
-    // exclusion above, which always holds regardless of what's picked here.
+    // The Status filter narrows that date-windowed set down to one status
+    // (or the combined/All choices) -- see apptStatusFilter's own comment.
+    // ReScheduled rows (each just the old half of a booking that's already
+    // moved to a new row elsewhere, via the usual Reschedule action or a
+    // Push Up/Push Down) are excluded by every value here except
+    // ReScheduled/All itself, so they stay out of the default view but are
+    // still reachable when Management actually wants to see them -- and
+    // they're still fully in the sheet/audit log and in the Cancel/
+    // Reschedule search modal's results regardless.
     var visible = inWindow.filter(function (a) {
       if (apptStatusFilter === 'all') return true;
       if (apptStatusFilter === 'finishedUpcoming') return (a.status || '') === '' || a.status === 'Finished';
