@@ -953,6 +953,128 @@ function sendCancellationEmail_(apptId, name, phone, email, dateStr, label, reas
   MailApp.sendEmail(email, subject, body);
 }
 
+// Sent to the patient (only when they gave an email) right after a
+// successful booking -- a brand-new booking from the main site's Book
+// Appointment form, a patient's own reschedule.html rebooking, or one made
+// on their behalf by Dr. Lokesh/the Receptionist from loki.html (a fresh
+// "Insert Booking Below" booking, or an admin-initiated reschedule).
+// Separate from sendAppointmentEmail_ above, which notifies the CLINIC
+// (NOTIFICATION_EMAIL) -- this one goes to the patient themselves, and
+// gives them a Cancel link (cancel.html) and a Reschedule link
+// (reschedule.html), both pre-filled with this booking's own Id/name/
+// phone/email the same way sendCancellationEmail_'s reschedule link
+// already is. Deliberately NOT sent from handleLokiApplyReorder_'s own
+// internal moves -- that tool is explicitly silent/no-email by design (see
+// its own comment).
+function sendPatientBookingConfirmationEmail_(apptId, name, phone, email, dateStr, label) {
+  if (!email) return;
+
+  const query = '?id=' + encodeURIComponent(apptId)
+    + '&name=' + encodeURIComponent(name || '')
+    + '&phone=' + encodeURIComponent(phone || '')
+    + '&email=' + encodeURIComponent(email || '');
+  const cancelLink = SITE_BASE_URL + 'cancel.html' + query;
+  const rescheduleLink = SITE_BASE_URL + 'reschedule.html' + query;
+
+  const subject = 'Your PeerOna appointment is confirmed — ' + dateStr;
+  const body =
+    'Hi ' + (name || 'there') + ',\n\n' +
+    'Your appointment is confirmed:\n' +
+    'Date: ' + dateStr + '\n' +
+    'Time: ' + (label || '-') + '\n\n' +
+    'Need to cancel this booking? Use this link:\n' + cancelLink + '\n\n' +
+    'Need to pick a different time instead? Use this link:\n' + rescheduleLink + '\n\n' +
+    '— PeerOna';
+  MailApp.sendEmail(email, subject, body);
+}
+
+// Public, unauthenticated lookup for cancel.html -- the booking's own
+// numeric Id (handed to the patient only in their confirmation email
+// above) is the only thing gating this, same trust model reschedule.html's
+// own originalId already uses. Returns just enough to show the patient
+// what they're about to cancel, and whether it still CAN be cancelled --
+// same blank/"Past" rule loki.html's own Cancel Dates section uses (see
+// cancelCandidateStatus in loki.js).
+function handlePatientBookingInfo_(params) {
+  const id = (params.id || '').trim();
+  if (!id) {
+    return jsonResponse_({ result: 'error', message: 'Missing booking id.' });
+  }
+  const sheet = getOrCreateAppointmentsSheet_();
+  const row = findRowById_(sheet, id);
+  if (row === -1) {
+    return jsonResponse_({ result: 'error', message: 'Could not find that booking.' });
+  }
+  const status = String(sheet.getRange(row, 10).getValue() || '').trim();
+  return jsonResponse_({
+    result: 'success',
+    name: sheet.getRange(row, 3).getValue(),
+    date: formatDateForCompare_(sheet.getRange(row, 5).getValue()),
+    label: sheet.getRange(row, 8).getValue(),
+    status: status,
+    cancellable: status === '' || status === STATUS_PAST
+  });
+}
+
+// Lets a patient cancel their own booking from cancel.html, reached only
+// via the link in their booking confirmation email (sendPatientBooking
+// ConfirmationEmail_ above) -- no passcode, since the patient isn't a
+// loki.html user; same trust model as handlePatientBookingInfo_ above.
+// Mirrors handleLokiSaveApptStatus_'s own Cancelled branch (free the slot,
+// log it, email the patient a confirmation with a reschedule link) but
+// scoped to exactly one booking, needs no passcode, and is always logged
+// as the Patient user. Only a blank/"Past" booking can be cancelled this
+// way, same rule handlePatientBookingInfo_ reports as "cancellable".
+function handlePatientCancelBooking_(params) {
+  const id = (params.id || '').trim();
+  if (!id) {
+    return jsonResponse_({ result: 'error', message: 'Missing booking id.' });
+  }
+
+  const lock = LockService.getScriptLock();
+  lock.tryLock(10000);
+
+  try {
+    const sheet = getOrCreateAppointmentsSheet_();
+    const row = findRowById_(sheet, id);
+    if (row === -1) {
+      return jsonResponse_({ result: 'error', message: 'Could not find that booking.' });
+    }
+
+    const wasStatus = String(sheet.getRange(row, 10).getValue() || '').trim();
+    if (wasStatus !== '' && wasStatus !== STATUS_PAST) {
+      return jsonResponse_({ result: 'error', message: 'This booking can no longer be cancelled online. Please call us directly.' });
+    }
+
+    const name = sheet.getRange(row, 3).getValue();
+    const phone = sheet.getRange(row, 4).getValue();
+    const email = String(sheet.getRange(row, 9).getValue() || '').trim();
+    const date = formatDateForCompare_(sheet.getRange(row, 5).getValue());
+    const label = sheet.getRange(row, 8).getValue();
+
+    sheet.getRange(row, 10).setValue(STATUS_CANCELLED);
+
+    logTransactionSafe_('BookedAppointments', id, ACTION_ID_MODIFY, USER_ID_PATIENT,
+      'Status: ' + (wasStatus || '-') + ' -> Cancelled (cancelled by patient online)');
+
+    if (email) {
+      try {
+        sendCancellationEmail_(id, name, phone, email, date, label, '');
+      } catch (mailErr) {
+        // Swallow — the cancellation itself is already saved.
+      }
+    }
+
+    return jsonResponse_({ result: 'success', date: date, label: label });
+
+  } catch (err) {
+    return jsonResponse_({ result: 'error', message: err.message });
+
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 // Adds a Calendar event on the configured notification email's calendar
 // (falling back to the script owner's own default calendar if that
 // calendar isn't reachable). Failures here never block the booking itself.
@@ -1087,6 +1209,12 @@ function handleAppointment_(params) {
     }
 
     try {
+      sendPatientBookingConfirmationEmail_(newId, name, phone, email, date, label);
+    } catch (mailErr) {
+      // Swallow — the booking itself is already saved.
+    }
+
+    try {
       addAppointmentCalendarEvent_(name, phone, date, startTime, endTime);
     } catch (calErr) {
       // Swallow — the booking itself is already saved.
@@ -1192,6 +1320,12 @@ function handleLokiReschedule_(params) {
 
     try {
       sendAppointmentEmail_(name, phone, date, label, email, true);
+    } catch (mailErr) {
+      // Swallow — the reschedule itself is already saved.
+    }
+
+    try {
+      sendPatientBookingConfirmationEmail_(newId, name, phone, email, date, label);
     } catch (mailErr) {
       // Swallow — the reschedule itself is already saved.
     }
@@ -1859,6 +1993,9 @@ function doGet(e) {
     }
     return jsonResponse_({ result: 'success', messages: getMessagesForLoki_() });
   }
+  if (params.action === 'patientBookingInfo') {
+    return handlePatientBookingInfo_(params);
+  }
   return jsonResponse_({ result: 'error', message: 'Unknown request.' });
 }
 
@@ -1881,6 +2018,9 @@ function doPost(e) {
   }
   if (params.action === 'lokiSendReply') {
     return handleLokiSendReply_(params);
+  }
+  if (params.action === 'patientCancelBooking') {
+    return handlePatientCancelBooking_(params);
   }
   if (params.formType === 'appointment') {
     return handleAppointment_(params);

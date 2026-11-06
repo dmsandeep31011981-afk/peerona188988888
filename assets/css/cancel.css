@@ -1,0 +1,84 @@
+/* =========================================================
+   PeerOna — Cancel Booking page (cancel.html)
+   Fully self-contained, same reasoning as assets/css/reschedule.css:
+   deliberately does NOT load the main site's assets/css/style.css
+   (30KB of hero/gallery/carousel styles) since this page only ever
+   needs a small card with a couple of details and two buttons.
+   ========================================================= */
+
+:root {
+  --blush-dark: #c48b84;
+  --cream:      #fbf3ec;
+  --text-dark:  #4a3b36;
+  --text-light: #8a746d;
+  --white:      #ffffff;
+
+  --font-heading: 'Playfair Display', Georgia, serif;
+  --font-body: 'Poppins', 'Segoe UI', sans-serif;
+
+  --radius-sm: 10px;
+  --radius-lg: 28px;
+  --shadow-md: 0 16px 40px rgba(74, 59, 54, 0.12);
+  --transition: 0.35s cubic-bezier(.4,0,.2,1);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: var(--font-body);
+  color: var(--text-dark);
+  background: var(--cream);
+  line-height: 1.6;
+}
+
+h1 { font-family: var(--font-heading); font-weight: 600; line-height: 1.25; color: var(--text-dark); }
+
+button { font-family: inherit; cursor: pointer; border: none; background: none; }
+
+.cancel-page {
+  min-height: 100vh;
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+}
+
+.cancel-box {
+  background: var(--white); border-radius: var(--radius-lg); box-shadow: var(--shadow-md);
+  padding: 44px 36px; max-width: 440px; width: 100%; text-align: center;
+}
+.cancel-icon { font-size: 2.6rem; margin-bottom: 10px; }
+.cancel-box h1 { font-size: 1.5rem; margin-bottom: 8px; }
+.cancel-sub { color: var(--text-light); font-size: 0.92rem; margin-bottom: 4px; }
+
+/* ---------- Booking details (read-only, filled in once loaded) ---------- */
+.cancel-details {
+  text-align: left; margin-top: 22px; padding: 16px 18px;
+  background: var(--cream); border-radius: var(--radius-sm);
+  display: flex; flex-direction: column; gap: 8px;
+}
+.cancel-detail-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.cancel-detail-row span { font-size: 0.82rem; font-weight: 600; color: var(--text-light); }
+.cancel-detail-row strong { font-size: 0.95rem; color: var(--text-dark); text-align: right; overflow-wrap: anywhere; }
+
+.cancel-actions { display: flex; flex-direction: column; gap: 12px; margin-top: 24px; }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 13px 28px; border-radius: 50px; font-weight: 500; font-size: 0.95rem;
+  transition: var(--transition); white-space: nowrap; text-decoration: none;
+}
+.btn-primary { background: #ff3300; color: var(--white); box-shadow: 0 10px 24px rgba(196, 139, 132, 0.35); }
+.btn-primary:hover { background: var(--text-dark); transform: translateY(-2px); }
+.btn-outline { border: 1.5px solid var(--blush-dark); color: var(--blush-dark); background: transparent; }
+.btn-outline:hover { background: #ff3300; border-color: #ff3300; color: var(--white); transform: translateY(-2px); }
+.btn-lg { padding: 16px 34px; font-size: 1rem; }
+.btn-block { width: 100%; }
+.btn:disabled { opacity: 0.7; cursor: not-allowed; transform: none; }
+.btn[hidden] { display: none; }
+
+.form-status { font-size: 0.88rem; text-align: center; min-height: 1.2em; margin-top: 14px; }
+.form-status.success { color: #2f8f4e; }
+.form-status.error { color: #d6453d; }
+
+@media (max-width: 480px) {
+  .cancel-box { padding: 32px 22px; }
+}

@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cancel Your Appointment &mdash; PeerOna</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>&#127807;</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/cancel.css">
+</head>
+<body>
+
+<div class="cancel-page">
+  <div class="cancel-box">
+    <div class="cancel-icon" aria-hidden="true">&#128197;</div>
+    <h1>Cancel Your Appointment</h1>
+    <p class="cancel-sub" id="cancelSub">Loading your booking details&hellip;</p>
+
+    <div class="cancel-details" id="cancelDetails" hidden>
+      <div class="cancel-detail-row"><span>Name</span><strong id="cancelDetailName">&mdash;</strong></div>
+      <div class="cancel-detail-row"><span>Date</span><strong id="cancelDetailDate">&mdash;</strong></div>
+      <div class="cancel-detail-row"><span>Time</span><strong id="cancelDetailTime">&mdash;</strong></div>
+    </div>
+
+    <div class="cancel-actions">
+      <button type="button" class="btn btn-primary btn-block btn-lg" id="cancelConfirmBtn" hidden>Cancel This Booking</button>
+      <a class="btn btn-outline btn-block btn-lg" id="cancelRescheduleLink" href="#" hidden>Reschedule Instead</a>
+    </div>
+    <p class="form-status" id="cancelFormStatus" aria-live="polite"></p>
+  </div>
+</div>
+
+<script src="assets/js/cancel.js"></script>
+</body>
+</html>
