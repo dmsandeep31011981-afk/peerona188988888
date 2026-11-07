@@ -466,6 +466,30 @@ html, body { overflow-x: visible; }
 }
 .loki-search-mode-toggle.is-and { background: var(--blush-dark); color: var(--white); border-color: var(--blush-dark); }
 
+/* Date-range checkboxes (Today / Earlier / Tomorrow & Further Dates / All)
+   plus the ascending/descending sort toggle, sitting in their own row
+   below the Name/Date fields so they read as filters on top of whatever
+   name/date search is in play, not a replacement for it. */
+.loki-search-range-row {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  margin: -6px 0 18px;
+}
+.loki-search-range-label { font-size: 0.8rem; font-weight: 600; color: var(--text-dark); }
+.loki-search-range-checkbox {
+  display: flex; align-items: center; gap: 6px; font-size: 0.82rem;
+  font-weight: 500; color: var(--text-light); cursor: pointer; user-select: none;
+}
+.loki-search-range-checkbox input { width: auto; flex-shrink: 0; cursor: pointer; }
+/* Set via JS alongside the checkbox's own disabled state, while "All" has
+   it checked and the other three are locked to mirror it -- plain
+   [disabled] on the input alone doesn't dim the label text next to it. */
+.loki-search-range-checkbox.is-disabled { opacity: 0.55; }
+.loki-search-range-checkbox.is-disabled input { cursor: not-allowed; }
+.loki-search-sort-toggle {
+  margin-left: auto; flex-shrink: 0; padding: 8px 16px; font-size: 0.82rem; font-weight: 700;
+}
+.loki-search-sort-toggle.is-desc { background: var(--blush-dark); color: var(--white); border-color: var(--blush-dark); }
+
 /* Shown only while a "View Rescheduled Booking" jump is stacked (hidden
    otherwise, see the `hidden` attribute in loki.html) -- lets Dr Lokesh /
    Management step back out of a multi-level reschedule chain one jump at
@@ -649,6 +673,8 @@ html, body { overflow-x: visible; }
   .loki-search-field { flex: 1 1 auto; }
   .loki-search-clear-btn { align-self: stretch; margin-top: 0; }
   .loki-search-mode-toggle { align-self: stretch; margin-top: 0; }
+  .loki-search-range-row { flex-direction: column; align-items: stretch; gap: 10px; }
+  .loki-search-sort-toggle { margin-left: 0; align-self: stretch; }
   .loki-search-result-top { flex-direction: column; align-items: flex-start; }
   .loki-search-result-actions { width: 100%; }
   .loki-search-cancel-btn, .loki-search-reschedule-btn, .loki-search-view-photos-btn { flex: 1 1 auto; text-align: center; }

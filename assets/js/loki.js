@@ -263,6 +263,13 @@
     if (isNaN(d.getTime())) return '';
     return d.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: 'numeric', minute: '2-digit' });
   }
+  // "Today" as YYYY-MM-DD in the clinic's own timezone, regardless of
+  // whatever timezone the browser itself is in -- used by the Cancel/
+  // Reschedule search modal's Today/Earlier/Tomorrow & Further Dates
+  // checkboxes to classify each booking's (already YYYY-MM-DD) date.
+  function getTodayIST() {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+  }
 
   /* ---------- passcode gate ---------- */
   var gate = document.getElementById('lokiGate');
@@ -1986,6 +1993,14 @@
   var lokiSearchClearBtn = document.getElementById('lokiSearchClearBtn');
   var lokiSearchBackBtn = document.getElementById('lokiSearchBackBtn');
   var lokiSearchResults = document.getElementById('lokiSearchResults');
+  var lokiSearchRangeToday = document.getElementById('lokiSearchRangeToday');
+  var lokiSearchRangeEarlier = document.getElementById('lokiSearchRangeEarlier');
+  var lokiSearchRangeFuture = document.getElementById('lokiSearchRangeFuture');
+  var lokiSearchRangeAll = document.getElementById('lokiSearchRangeAll');
+  var lokiSearchRangeTodayLabel = document.getElementById('lokiSearchRangeTodayLabel');
+  var lokiSearchRangeEarlierLabel = document.getElementById('lokiSearchRangeEarlierLabel');
+  var lokiSearchRangeFutureLabel = document.getElementById('lokiSearchRangeFutureLabel');
+  var lokiSearchSortToggle = document.getElementById('lokiSearchSortToggle');
 
   // Lets "View Rescheduled Booking" drill down multiple levels (a booking
   // rescheduled to another booking that was itself rescheduled again, and
@@ -2010,6 +2025,47 @@
     lokiSearchModeToggle.textContent = isAnd ? 'And' : 'Or';
     lokiSearchModeToggle.classList.toggle('is-and', isAnd);
     lokiSearchModeToggle.setAttribute('aria-pressed', isAnd ? 'true' : 'false');
+  }
+
+  // Results are sorted by date (then start time) ascending by default, per
+  // how this search modal has always behaved -- this toggle just lets
+  // Dr Lokesh/Management flip to newest-first when that's more useful.
+  var lokiSearchSortDir = 'asc';
+  function renderLokiSearchSortToggle() {
+    if (!lokiSearchSortToggle) return;
+    var isDesc = lokiSearchSortDir === 'desc';
+    lokiSearchSortToggle.textContent = isDesc ? 'Date ↓ (Newest First)' : 'Date ↑ (Oldest First)';
+    lokiSearchSortToggle.classList.toggle('is-desc', isDesc);
+    lokiSearchSortToggle.setAttribute('aria-pressed', isDesc ? 'true' : 'false');
+  }
+
+  // Today/Earlier/Tomorrow & Further Dates/All are plain independent
+  // checkboxes (any combination can be checked at once -- the union of
+  // whichever are checked is shown), except "All" is a shortcut for "all
+  // three at once": checking it locks the other three on and disabled
+  // (so it's visually obvious they're included, not just coincidentally
+  // unchecked), and checking any of the other three on their own first
+  // un-checks and unlocks "All" again, since the selection is no longer
+  // "everything".
+  function lokiSearchSetRangeCheckboxesDisabled(disabled) {
+    [lokiSearchRangeToday, lokiSearchRangeEarlier, lokiSearchRangeFuture].forEach(function (cb) {
+      if (cb) cb.disabled = disabled;
+    });
+    [lokiSearchRangeTodayLabel, lokiSearchRangeEarlierLabel, lokiSearchRangeFutureLabel].forEach(function (label) {
+      if (label) label.classList.toggle('is-disabled', disabled);
+    });
+  }
+  // Back to the blank/default state -- used when the modal is opened
+  // fresh, Clear is clicked, and (temporarily, restored on Back) when
+  // jumping straight to one specific booking via "View Rescheduled
+  // Booking", so that jump is never hidden by a range filter that
+  // happened to be active beforehand.
+  function resetLokiSearchRangeCheckboxes() {
+    if (lokiSearchRangeToday) lokiSearchRangeToday.checked = false;
+    if (lokiSearchRangeEarlier) lokiSearchRangeEarlier.checked = false;
+    if (lokiSearchRangeFuture) lokiSearchRangeFuture.checked = false;
+    if (lokiSearchRangeAll) lokiSearchRangeAll.checked = false;
+    lokiSearchSetRangeCheckboxesDisabled(false);
   }
 
   // Same "blank/Past only" rule as the main Cancel Dates section -- an
@@ -2264,10 +2320,23 @@
     var useRegex = !!(lokiSearchRegexToggle && lokiSearchRegexToggle.checked);
     lokiSearchResults.innerHTML = '';
 
-    if (!nameQueryRaw && !dateQuery) {
+    // Today/Earlier/Tomorrow & Further Dates/All -- see
+    // lokiSearchSetRangeCheckboxesDisabled's own comment for how these
+    // four interact. "All" being checked (which also locks the other
+    // three checked) is handled the same as the other three being
+    // individually checked -- either way every one of today/earlier/
+    // future ends up true, so rangeMatches below just ORs them.
+    var rangeAllChecked = !!(lokiSearchRangeAll && lokiSearchRangeAll.checked);
+    var rangeTodayChecked = rangeAllChecked || !!(lokiSearchRangeToday && lokiSearchRangeToday.checked);
+    var rangeEarlierChecked = rangeAllChecked || !!(lokiSearchRangeEarlier && lokiSearchRangeEarlier.checked);
+    var rangeFutureChecked = rangeAllChecked || !!(lokiSearchRangeFuture && lokiSearchRangeFuture.checked);
+    var anyRangeChecked = rangeAllChecked || rangeTodayChecked || rangeEarlierChecked || rangeFutureChecked;
+    var todayIST = getTodayIST();
+
+    if (!nameQueryRaw && !dateQuery && !anyRangeChecked) {
       var prompt = document.createElement('p');
       prompt.className = 'loki-empty';
-      prompt.textContent = 'Type a name or pick a date to search.';
+      prompt.textContent = 'Type a name, pick a date, or choose a date range below to search.';
       lokiSearchResults.appendChild(prompt);
       return;
     }
@@ -2302,13 +2371,29 @@
       // intersection (a name search scoped to the chosen date). With only
       // one field filled in there's no difference, so this only branches
       // when both are actually in play.
+      var baseMatches;
       if (nameQueryRaw && dateQuery && lokiSearchMode !== 'and') {
-        return nameMatches || dateMatches;
+        baseMatches = nameMatches || dateMatches;
+      } else {
+        baseMatches = nameMatches && dateMatches;
       }
-      return nameMatches && dateMatches;
+
+      // The date-range checkboxes are a separate, independent narrowing on
+      // top of the name/date search above (not part of its own Or/And
+      // toggle) -- e.g. typing a name AND checking "Today" means "that
+      // name, only if booked for today".
+      var rangeMatches = true;
+      if (anyRangeChecked) {
+        rangeMatches =
+          (rangeTodayChecked && a.date === todayIST) ||
+          (rangeEarlierChecked && a.date < todayIST) ||
+          (rangeFutureChecked && a.date > todayIST);
+      }
+
+      return baseMatches && rangeMatches;
     }).sort(function (x, y) {
-      if (x.date !== y.date) return x.date < y.date ? -1 : 1;
-      return (x.startTime || '').localeCompare(y.startTime || '');
+      var cmp = x.date !== y.date ? (x.date < y.date ? -1 : 1) : (x.startTime || '').localeCompare(y.startTime || '');
+      return lokiSearchSortDir === 'desc' ? -cmp : cmp;
     });
 
     if (!matches.length) {
@@ -2330,6 +2415,9 @@
     if (lokiSearchRegexToggle) lokiSearchRegexToggle.checked = false;
     lokiSearchMode = 'or';
     renderLokiSearchModeToggle();
+    resetLokiSearchRangeCheckboxes();
+    lokiSearchSortDir = 'asc';
+    renderLokiSearchSortToggle();
     lokiCancelReschedModalOverlay.classList.add('is-open');
     // Plain loading message, not setLoadingStatus() -- that helper
     // overwrites el.className (it's built for a one-line <p class="form-status">
@@ -2377,8 +2465,18 @@
       name: lokiSearchNameInput.value,
       date: lokiSearchDateInput.value,
       useRegex: !!(lokiSearchRegexToggle && lokiSearchRegexToggle.checked),
-      mode: lokiSearchMode
+      mode: lokiSearchMode,
+      rangeToday: !!(lokiSearchRangeToday && lokiSearchRangeToday.checked),
+      rangeEarlier: !!(lokiSearchRangeEarlier && lokiSearchRangeEarlier.checked),
+      rangeFuture: !!(lokiSearchRangeFuture && lokiSearchRangeFuture.checked),
+      rangeAll: !!(lokiSearchRangeAll && lokiSearchRangeAll.checked),
+      sortDir: lokiSearchSortDir
     });
+    // A date-range checkbox left checked from before this jump could hide
+    // the very booking being jumped to (e.g. "Today" checked while jumping
+    // to a booking rescheduled to next week) -- clear them for the jump
+    // itself; Back (below) restores whatever was checked beforehand.
+    resetLokiSearchRangeCheckboxes();
     updateLokiSearchBackBtnVisibility();
 
     lokiCancelReschedModalOverlay.classList.add('is-open');
@@ -2431,6 +2529,13 @@
     if (lokiSearchRegexToggle) lokiSearchRegexToggle.checked = !!prevState.useRegex;
     lokiSearchMode = prevState.mode || 'or';
     renderLokiSearchModeToggle();
+    if (lokiSearchRangeAll) lokiSearchRangeAll.checked = !!prevState.rangeAll;
+    lokiSearchSetRangeCheckboxesDisabled(!!prevState.rangeAll);
+    if (lokiSearchRangeToday) lokiSearchRangeToday.checked = !!prevState.rangeAll || !!prevState.rangeToday;
+    if (lokiSearchRangeEarlier) lokiSearchRangeEarlier.checked = !!prevState.rangeAll || !!prevState.rangeEarlier;
+    if (lokiSearchRangeFuture) lokiSearchRangeFuture.checked = !!prevState.rangeAll || !!prevState.rangeFuture;
+    lokiSearchSortDir = prevState.sortDir || 'asc';
+    renderLokiSearchSortToggle();
     updateLokiSearchBackBtnVisibility();
     renderSearchResults();
   }
@@ -2448,12 +2553,49 @@
       renderSearchResults();
     });
   }
+  if (lokiSearchRangeAll) {
+    lokiSearchRangeAll.addEventListener('change', function () {
+      // Checking "All" locks the other three on (visually, it IS all
+      // three); unchecking it just unlocks them again, leaving whatever
+      // they're now showing as checked/unchecked (all unchecked, since
+      // they were forced on only while "All" held them there).
+      var checked = lokiSearchRangeAll.checked;
+      lokiSearchSetRangeCheckboxesDisabled(checked);
+      if (lokiSearchRangeToday) lokiSearchRangeToday.checked = checked;
+      if (lokiSearchRangeEarlier) lokiSearchRangeEarlier.checked = checked;
+      if (lokiSearchRangeFuture) lokiSearchRangeFuture.checked = checked;
+      renderSearchResults();
+    });
+  }
+  [lokiSearchRangeToday, lokiSearchRangeEarlier, lokiSearchRangeFuture].forEach(function (cb) {
+    if (!cb) return;
+    cb.addEventListener('change', function () {
+      // Checking (or unchecking) any one of these individually means the
+      // selection is no longer "everything", so "All" no longer applies --
+      // un-check it and hand control of the three back to the admin.
+      if (lokiSearchRangeAll && lokiSearchRangeAll.checked) {
+        lokiSearchRangeAll.checked = false;
+        lokiSearchSetRangeCheckboxesDisabled(false);
+      }
+      renderSearchResults();
+    });
+  });
+  if (lokiSearchSortToggle) {
+    lokiSearchSortToggle.addEventListener('click', function () {
+      lokiSearchSortDir = (lokiSearchSortDir === 'desc') ? 'asc' : 'desc';
+      renderLokiSearchSortToggle();
+      renderSearchResults();
+    });
+  }
   lokiSearchClearBtn.addEventListener('click', function () {
     lokiSearchNameInput.value = '';
     lokiSearchDateInput.value = '';
     if (lokiSearchRegexToggle) lokiSearchRegexToggle.checked = false;
     lokiSearchMode = 'or';
     renderLokiSearchModeToggle();
+    resetLokiSearchRangeCheckboxes();
+    lokiSearchSortDir = 'asc';
+    renderLokiSearchSortToggle();
     lokiSearchNavStack = [];
     updateLokiSearchBackBtnVisibility();
     renderSearchResults();

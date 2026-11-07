@@ -322,6 +322,14 @@
         </div>
         <button type="button" class="btn btn-outline loki-search-clear-btn" id="lokiSearchClearBtn">Clear</button>
       </div>
+      <div class="loki-search-range-row">
+        <span class="loki-search-range-label">Show:</span>
+        <label class="loki-search-range-checkbox" id="lokiSearchRangeTodayLabel"><input type="checkbox" id="lokiSearchRangeToday"> Today</label>
+        <label class="loki-search-range-checkbox" id="lokiSearchRangeEarlierLabel"><input type="checkbox" id="lokiSearchRangeEarlier"> Earlier</label>
+        <label class="loki-search-range-checkbox" id="lokiSearchRangeFutureLabel"><input type="checkbox" id="lokiSearchRangeFuture"> Tomorrow &amp; Further Dates</label>
+        <label class="loki-search-range-checkbox" id="lokiSearchRangeAllLabel"><input type="checkbox" id="lokiSearchRangeAll"> All</label>
+        <button type="button" class="btn btn-outline loki-search-sort-toggle" id="lokiSearchSortToggle" aria-pressed="false" title="Sort results by date ascending or descending">Date &uarr; (Oldest First)</button>
+      </div>
       <button type="button" class="loki-search-back-btn" id="lokiSearchBackBtn" hidden>&larr; Back</button>
       <div class="loki-search-results" id="lokiSearchResults">
         <p class="loki-empty">Type a name or pick a date to search.</p>
