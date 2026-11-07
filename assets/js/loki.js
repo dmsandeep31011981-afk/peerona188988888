@@ -2000,6 +2000,7 @@
   var lokiSearchRangeTodayLabel = document.getElementById('lokiSearchRangeTodayLabel');
   var lokiSearchRangeEarlierLabel = document.getElementById('lokiSearchRangeEarlierLabel');
   var lokiSearchRangeFutureLabel = document.getElementById('lokiSearchRangeFutureLabel');
+  var lokiSearchRangeAllLabel = document.getElementById('lokiSearchRangeAllLabel');
   var lokiSearchSortToggle = document.getElementById('lokiSearchSortToggle');
 
   // Lets "View Rescheduled Booking" drill down multiple levels (a booking
@@ -2041,31 +2042,50 @@
 
   // Today/Earlier/Tomorrow & Further Dates/All are plain independent
   // checkboxes (any combination can be checked at once -- the union of
-  // whichever are checked is shown), except "All" is a shortcut for "all
-  // three at once": checking it locks the other three on and disabled
-  // (so it's visually obvious they're included, not just coincidentally
-  // unchecked), and checking any of the other three on their own first
-  // un-checks and unlocks "All" again, since the selection is no longer
-  // "everything".
-  function lokiSearchSetRangeCheckboxesDisabled(disabled) {
-    [lokiSearchRangeToday, lokiSearchRangeEarlier, lokiSearchRangeFuture].forEach(function (cb) {
-      if (cb) cb.disabled = disabled;
-    });
+  // whichever are checked is shown), with two things that override them:
+  // "All" is a shortcut for "all three at once" -- checking it locks the
+  // other three on and disabled (so it's visually obvious they're
+  // included, not just coincidentally unchecked) -- and picking an exact
+  // Date makes all four moot (a specific date already pins down exactly
+  // which bucket it falls in), so all four are disabled and cleared while
+  // one is chosen. Recomputed from scratch on every render (called at the
+  // top of renderSearchResults, which already runs after every relevant
+  // change) rather than toggled imperatively from each individual event,
+  // so it's always correct no matter how the date/checked values got set
+  // -- the date picker, Back, Clear, or a "View Rescheduled Booking" jump
+  // -- instead of two separate call sites fighting over .disabled.
+  function lokiSearchSyncRangeCheckboxState(dateIsPicked) {
+    if (dateIsPicked) {
+      [lokiSearchRangeToday, lokiSearchRangeEarlier, lokiSearchRangeFuture, lokiSearchRangeAll].forEach(function (cb) {
+        if (cb) { cb.checked = false; cb.disabled = true; }
+      });
+    } else {
+      var allChecked = !!(lokiSearchRangeAll && lokiSearchRangeAll.checked);
+      [lokiSearchRangeToday, lokiSearchRangeEarlier, lokiSearchRangeFuture].forEach(function (cb) {
+        if (!cb) return;
+        cb.disabled = allChecked;
+        if (allChecked) cb.checked = true;
+      });
+      if (lokiSearchRangeAll) lokiSearchRangeAll.disabled = false;
+    }
+    var anyDisabled = dateIsPicked || !!(lokiSearchRangeAll && lokiSearchRangeAll.checked);
     [lokiSearchRangeTodayLabel, lokiSearchRangeEarlierLabel, lokiSearchRangeFutureLabel].forEach(function (label) {
-      if (label) label.classList.toggle('is-disabled', disabled);
+      if (label) label.classList.toggle('is-disabled', anyDisabled);
     });
+    if (lokiSearchRangeAllLabel) lokiSearchRangeAllLabel.classList.toggle('is-disabled', dateIsPicked);
   }
   // Back to the blank/default state -- used when the modal is opened
   // fresh, Clear is clicked, and (temporarily, restored on Back) when
   // jumping straight to one specific booking via "View Rescheduled
   // Booking", so that jump is never hidden by a range filter that
-  // happened to be active beforehand.
+  // happened to be active beforehand. Disabled/enabled is left to
+  // lokiSearchSyncRangeCheckboxState, which the next renderSearchResults
+  // call always runs.
   function resetLokiSearchRangeCheckboxes() {
     if (lokiSearchRangeToday) lokiSearchRangeToday.checked = false;
     if (lokiSearchRangeEarlier) lokiSearchRangeEarlier.checked = false;
     if (lokiSearchRangeFuture) lokiSearchRangeFuture.checked = false;
     if (lokiSearchRangeAll) lokiSearchRangeAll.checked = false;
-    lokiSearchSetRangeCheckboxesDisabled(false);
   }
 
   // Same "blank/Past only" rule as the main Cancel Dates section -- an
@@ -2320,12 +2340,29 @@
     var useRegex = !!(lokiSearchRegexToggle && lokiSearchRegexToggle.checked);
     lokiSearchResults.innerHTML = '';
 
+    // Keep the checkboxes' disabled/checked state correct for the current
+    // date value before reading any of them below -- see
+    // lokiSearchSyncRangeCheckboxState's own comment.
+    lokiSearchSyncRangeCheckboxState(!!dateQuery);
+
+    // An exact Date was deliberately chosen -- if a name is also typed in,
+    // "And" (name within that exact date) is the only reading that makes
+    // sense; "Or" would pull in every other booking that merely shares the
+    // name, unrelated to the date just picked. Switching the toggle (not
+    // just using 'and' silently) is what lets Dr Lokesh/Management see
+    // that's what's happening.
+    if (dateQuery && nameQueryRaw && lokiSearchMode !== 'and') {
+      lokiSearchMode = 'and';
+      renderLokiSearchModeToggle();
+    }
+
     // Today/Earlier/Tomorrow & Further Dates/All -- see
-    // lokiSearchSetRangeCheckboxesDisabled's own comment for how these
-    // four interact. "All" being checked (which also locks the other
-    // three checked) is handled the same as the other three being
-    // individually checked -- either way every one of today/earlier/
-    // future ends up true, so rangeMatches below just ORs them.
+    // lokiSearchSyncRangeCheckboxState's own comment for how these four
+    // interact. "All" being checked (which also locks the other three
+    // checked) is handled the same as the other three being individually
+    // checked -- either way every one of today/earlier/future ends up
+    // true, so rangeMatches below just ORs them. All four are already
+    // forced false above whenever dateQuery is set.
     var rangeAllChecked = !!(lokiSearchRangeAll && lokiSearchRangeAll.checked);
     var rangeTodayChecked = rangeAllChecked || !!(lokiSearchRangeToday && lokiSearchRangeToday.checked);
     var rangeEarlierChecked = rangeAllChecked || !!(lokiSearchRangeEarlier && lokiSearchRangeEarlier.checked);
@@ -2529,8 +2566,10 @@
     if (lokiSearchRegexToggle) lokiSearchRegexToggle.checked = !!prevState.useRegex;
     lokiSearchMode = prevState.mode || 'or';
     renderLokiSearchModeToggle();
+    // Raw checked values only -- disabled is recomputed deterministically
+    // by lokiSearchSyncRangeCheckboxState inside the renderSearchResults
+    // call below, from these values plus the just-restored date.
     if (lokiSearchRangeAll) lokiSearchRangeAll.checked = !!prevState.rangeAll;
-    lokiSearchSetRangeCheckboxesDisabled(!!prevState.rangeAll);
     if (lokiSearchRangeToday) lokiSearchRangeToday.checked = !!prevState.rangeAll || !!prevState.rangeToday;
     if (lokiSearchRangeEarlier) lokiSearchRangeEarlier.checked = !!prevState.rangeAll || !!prevState.rangeEarlier;
     if (lokiSearchRangeFuture) lokiSearchRangeFuture.checked = !!prevState.rangeAll || !!prevState.rangeFuture;
@@ -2555,30 +2594,24 @@
   }
   if (lokiSearchRangeAll) {
     lokiSearchRangeAll.addEventListener('change', function () {
-      // Checking "All" locks the other three on (visually, it IS all
-      // three); unchecking it just unlocks them again, leaving whatever
-      // they're now showing as checked/unchecked (all unchecked, since
-      // they were forced on only while "All" held them there).
+      // Checking "All" checks the other three to match (locked disabled
+      // by the sync inside renderSearchResults, called below); unchecking
+      // it clears them back out too, rather than leaving them checked but
+      // now editable, since the selection is no longer "everything".
       var checked = lokiSearchRangeAll.checked;
-      lokiSearchSetRangeCheckboxesDisabled(checked);
       if (lokiSearchRangeToday) lokiSearchRangeToday.checked = checked;
       if (lokiSearchRangeEarlier) lokiSearchRangeEarlier.checked = checked;
       if (lokiSearchRangeFuture) lokiSearchRangeFuture.checked = checked;
       renderSearchResults();
     });
   }
+  // Each of these three is disabled for the entire time "All" is checked
+  // (see lokiSearchSyncRangeCheckboxState), so this listener can only ever
+  // fire from the admin's own click while "All" is unchecked -- no need to
+  // un-check "All" here, there's nothing to un-check.
   [lokiSearchRangeToday, lokiSearchRangeEarlier, lokiSearchRangeFuture].forEach(function (cb) {
     if (!cb) return;
-    cb.addEventListener('change', function () {
-      // Checking (or unchecking) any one of these individually means the
-      // selection is no longer "everything", so "All" no longer applies --
-      // un-check it and hand control of the three back to the admin.
-      if (lokiSearchRangeAll && lokiSearchRangeAll.checked) {
-        lokiSearchRangeAll.checked = false;
-        lokiSearchSetRangeCheckboxesDisabled(false);
-      }
-      renderSearchResults();
-    });
+    cb.addEventListener('change', renderSearchResults);
   });
   if (lokiSearchSortToggle) {
     lokiSearchSortToggle.addEventListener('click', function () {
