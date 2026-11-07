@@ -24,7 +24,10 @@
       <input type="text" id="reschName" name="name" placeholder="Your name" required>
 
       <label for="reschPhone">Phone Number</label>
-      <input type="tel" id="reschPhone" name="phone" placeholder="Your phone number" required pattern="[0-9+\s\(\)\-]{7,}">
+      <div class="phone-field-group">
+        <select id="reschPhoneCode" class="phone-code-select" aria-label="Country code"></select>
+        <input type="tel" id="reschPhone" name="phone" placeholder="Your phone number" required inputmode="numeric" autocomplete="tel-national" pattern="[0-9]{6,14}">
+      </div>
 
       <label for="reschEmail">Email Id <span class="form-optional">(optional)</span></label>
       <input type="email" id="reschEmail" name="email" placeholder="your.email@example.com">

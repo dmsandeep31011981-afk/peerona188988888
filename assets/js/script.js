@@ -676,6 +676,69 @@ document.addEventListener('DOMContentLoaded', () => {
   const appointmentFormStatus = document.getElementById('appointmentFormStatus');
   const apptDateInput = document.getElementById('apptDate');
   const apptTimeSelect = document.getElementById('apptTime');
+  const apptPhoneCodeSelect = document.getElementById('apptPhoneCode');
+  const apptPhoneInput = document.getElementById('apptPhone');
+
+  // Country codes a patient might book from — India is default (this is an
+  // India-based clinic); the rest cover the most common NRI/overseas
+  // destinations so an international patient can still book correctly.
+  const COUNTRY_CODES = [
+    { code: '91', name: 'India' },
+    { code: '61', name: 'Australia' },
+    { code: '973', name: 'Bahrain' },
+    { code: '880', name: 'Bangladesh' },
+    { code: '975', name: 'Bhutan' },
+    { code: '1', name: 'Canada/USA' },
+    { code: '86', name: 'China' },
+    { code: '33', name: 'France' },
+    { code: '49', name: 'Germany' },
+    { code: '62', name: 'Indonesia' },
+    { code: '353', name: 'Ireland' },
+    { code: '39', name: 'Italy' },
+    { code: '81', name: 'Japan' },
+    { code: '254', name: 'Kenya' },
+    { code: '965', name: 'Kuwait' },
+    { code: '60', name: 'Malaysia' },
+    { code: '977', name: 'Nepal' },
+    { code: '31', name: 'Netherlands' },
+    { code: '64', name: 'New Zealand' },
+    { code: '968', name: 'Oman' },
+    { code: '92', name: 'Pakistan' },
+    { code: '974', name: 'Qatar' },
+    { code: '966', name: 'Saudi Arabia' },
+    { code: '65', name: 'Singapore' },
+    { code: '27', name: 'South Africa' },
+    { code: '82', name: 'South Korea' },
+    { code: '34', name: 'Spain' },
+    { code: '94', name: 'Sri Lanka' },
+    { code: '41', name: 'Switzerland' },
+    { code: '971', name: 'UAE' },
+    { code: '44', name: 'UK' }
+  ];
+
+  const populatePhoneCodeSelect = (select) => {
+    if (!select) return;
+    select.innerHTML = COUNTRY_CODES.map((c) =>
+      '<option value="' + c.code + '"' + (c.code === '91' ? ' selected' : '') + '>+' + c.code + ' ' + c.name + '</option>'
+    ).join('');
+  };
+
+  // Indian mobile numbers are exactly 10 digits starting 6-9; every other
+  // country code just gets a sane generic length check (6-14 digits), since
+  // we don't carry per-country dialing rules for the rest of the world.
+  const validatePhoneNumber = (code, rawNumber) => {
+    const digits = (rawNumber || '').replace(/\D/g, '');
+    if (code === '91') {
+      if (!/^[6-9]\d{9}$/.test(digits)) {
+        return { ok: false, digits, message: 'Please enter a valid 10-digit Indian mobile number (starts with 6-9).' };
+      }
+    } else if (digits.length < 6 || digits.length > 14) {
+      return { ok: false, digits, message: 'Please enter a valid phone number (6-14 digits).' };
+    }
+    return { ok: true, digits };
+  };
+
+  populatePhoneCodeSelect(apptPhoneCodeSelect);
 
   // Toggle the native date picker open/closed on repeated clicks anywhere
   // in the field, not just the small calendar icon — showPicker() is
@@ -874,6 +937,17 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
+      const apptPhoneCode = apptPhoneCodeSelect ? apptPhoneCodeSelect.value : '91';
+      const apptPhoneResult = validatePhoneNumber(apptPhoneCode, apptPhoneInput ? apptPhoneInput.value : '');
+      apptPhoneInput && apptPhoneInput.classList.remove('field-invalid');
+      if (!apptPhoneResult.ok) {
+        appointmentFormStatus.textContent = apptPhoneResult.message;
+        appointmentFormStatus.className = 'form-status error';
+        apptPhoneInput && apptPhoneInput.classList.add('field-invalid');
+        apptPhoneInput && apptPhoneInput.focus();
+        return;
+      }
+
       const submitBtn = appointmentForm.querySelector('button[type="submit"]');
       const originalLabel = submitBtn.textContent;
       submitBtn.disabled = true;
@@ -885,7 +959,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const formData = new FormData();
       formData.append('formType', 'appointment');
       formData.append('name', appointmentForm.querySelector('#apptName').value);
-      formData.append('phone', appointmentForm.querySelector('#apptPhone').value);
+      formData.append('phone', '+' + apptPhoneCode + apptPhoneResult.digits);
       formData.append('email', apptEmailValue);
       formData.append('date', apptDateInput.value);
       formData.append('timeSlotStart', slot.start);

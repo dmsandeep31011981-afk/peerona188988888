@@ -36,6 +36,91 @@
     select.value = initialValue || '';
     return select;
   }
+
+  // Country codes a patient might book from — India is default (this is an
+  // India-based clinic); the rest cover the most common NRI/overseas
+  // destinations so an international patient can still be booked correctly.
+  // Kept in the same order as the public site's assets/js/script.js
+  // (duplicated rather than shared, like every other data list this file
+  // mirrors from script.js/reschedule.js) so the dropdown reads the same
+  // everywhere.
+  var COUNTRY_CODES = [
+    { code: '91', name: 'India' },
+    { code: '61', name: 'Australia' },
+    { code: '973', name: 'Bahrain' },
+    { code: '880', name: 'Bangladesh' },
+    { code: '975', name: 'Bhutan' },
+    { code: '1', name: 'Canada/USA' },
+    { code: '86', name: 'China' },
+    { code: '33', name: 'France' },
+    { code: '49', name: 'Germany' },
+    { code: '62', name: 'Indonesia' },
+    { code: '353', name: 'Ireland' },
+    { code: '39', name: 'Italy' },
+    { code: '81', name: 'Japan' },
+    { code: '254', name: 'Kenya' },
+    { code: '965', name: 'Kuwait' },
+    { code: '60', name: 'Malaysia' },
+    { code: '977', name: 'Nepal' },
+    { code: '31', name: 'Netherlands' },
+    { code: '64', name: 'New Zealand' },
+    { code: '968', name: 'Oman' },
+    { code: '92', name: 'Pakistan' },
+    { code: '974', name: 'Qatar' },
+    { code: '966', name: 'Saudi Arabia' },
+    { code: '65', name: 'Singapore' },
+    { code: '27', name: 'South Africa' },
+    { code: '82', name: 'South Korea' },
+    { code: '34', name: 'Spain' },
+    { code: '94', name: 'Sri Lanka' },
+    { code: '41', name: 'Switzerland' },
+    { code: '971', name: 'UAE' },
+    { code: '44', name: 'UK' }
+  ];
+  // Longest-code-first so a prefix match (used by splitPhoneCodeAndNumber
+  // below) never mistakes, say, a '91' (India) number for a '9' that
+  // doesn't exist, or a 3-digit code for a shorter one it starts with.
+  var COUNTRY_CODES_BY_LENGTH_DESC = COUNTRY_CODES.map(function (c) { return c.code; })
+    .sort(function (a, b) { return b.length - a.length; });
+
+  function populatePhoneCodeSelect(select) {
+    if (!select) return;
+    select.innerHTML = COUNTRY_CODES.map(function (c) {
+      return '<option value="' + c.code + '"' + (c.code === '91' ? ' selected' : '') + '>+' + c.code + ' ' + c.name + '</option>';
+    }).join('');
+  }
+
+  // Indian mobile numbers are exactly 10 digits starting 6-9; every other
+  // country code just gets a sane generic length check (6-14 digits), since
+  // we don't carry per-country dialing rules for the rest of the world.
+  function validatePhoneNumber(code, rawNumber) {
+    var digits = (rawNumber || '').replace(/\D/g, '');
+    if (code === '91') {
+      if (!/^[6-9]\d{9}$/.test(digits)) {
+        return { ok: false, digits: digits, message: 'Please enter a valid 10-digit Indian mobile number (starts with 6-9).' };
+      }
+    } else if (digits.length < 6 || digits.length > 14) {
+      return { ok: false, digits: digits, message: 'Please enter a valid phone number (6-14 digits).' };
+    }
+    return { ok: true, digits: digits };
+  }
+
+  // Splits a stored phone string (e.g. '+919876543210', or older free-text
+  // data with no recognizable code) back into { code, number } so a
+  // prefilled form (rescheduling from a search result) shows the right
+  // country selected instead of dumping the whole string into the number
+  // field. Falls back to India + whatever digits are present when no known
+  // code prefix is found, matching this form's own default.
+  function splitPhoneCodeAndNumber(fullPhone) {
+    var s = String(fullPhone || '').trim().replace(/^\+/, '').replace(/[\s\-\(\)]/g, '');
+    for (var i = 0; i < COUNTRY_CODES_BY_LENGTH_DESC.length; i++) {
+      var code = COUNTRY_CODES_BY_LENGTH_DESC[i];
+      if (s.indexOf(code) === 0 && s.length > code.length) {
+        return { code: code, number: s.slice(code.length) };
+      }
+    }
+    return { code: '91', number: s.replace(/\D/g, '') };
+  }
   /* ---------- "Saved" / "Welcome" toast (shown briefly after a save, or
      right after unlocking) ---------- */
   var savedToastEl = null;
@@ -1612,8 +1697,10 @@
   var lokiApptFormStatus = document.getElementById('lokiApptFormStatus');
   var lokiApptFormSubmitBtn = document.getElementById('lokiApptFormSubmitBtn');
   var lokiApptNameInput = document.getElementById('lokiApptName');
+  var lokiApptPhoneCodeSelect = document.getElementById('lokiApptPhoneCode');
   var lokiApptPhoneInput = document.getElementById('lokiApptPhone');
   var lokiApptEmailInput = document.getElementById('lokiApptEmail');
+  populatePhoneCodeSelect(lokiApptPhoneCodeSelect);
   var lokiApptDateInput = document.getElementById('lokiApptDate');
   var lokiApptTimeSelect = document.getElementById('lokiApptTime');
   var lokiApptFormOriginalId = null;
@@ -1740,7 +1827,9 @@
     lokiApptFormStatus.textContent = '';
     lokiApptFormStatus.className = 'form-status';
     lokiApptNameInput.value = prefill ? (prefill.name || '') : '';
-    lokiApptPhoneInput.value = prefill ? (prefill.phone || '') : '';
+    var lokiApptPhoneSplit = splitPhoneCodeAndNumber(prefill ? prefill.phone : '');
+    lokiApptPhoneCodeSelect.value = lokiApptPhoneSplit.code;
+    lokiApptPhoneInput.value = prefill ? lokiApptPhoneSplit.number : '';
     lokiApptEmailInput.value = prefill ? (prefill.email || '') : '';
     lokiApptPopulateTimeSlots(); // also resets the select back to enabled -- see its own comment
     var today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
@@ -1793,6 +1882,17 @@
       return;
     }
 
+    var lokiApptPhoneCode = lokiApptPhoneCodeSelect.value;
+    var lokiApptPhoneResult = validatePhoneNumber(lokiApptPhoneCode, lokiApptPhoneInput.value);
+    lokiApptPhoneInput.classList.remove('field-invalid');
+    if (!lokiApptPhoneResult.ok) {
+      lokiApptFormStatus.textContent = lokiApptPhoneResult.message;
+      lokiApptFormStatus.className = 'form-status error';
+      lokiApptPhoneInput.classList.add('field-invalid');
+      lokiApptPhoneInput.focus();
+      return;
+    }
+
     var isReschedule = !!lokiApptFormOriginalId;
     lokiApptFormSubmitBtn.disabled = true;
     lokiApptFormSubmitBtn.textContent = isReschedule ? 'Rescheduling\u2026' : 'Booking\u2026';
@@ -1809,7 +1909,7 @@
       fd.append('formType', 'appointment');
     }
     fd.append('name', lokiApptNameInput.value);
-    fd.append('phone', lokiApptPhoneInput.value);
+    fd.append('phone', '+' + lokiApptPhoneCode + lokiApptPhoneResult.digits);
     fd.append('email', emailValue);
     fd.append('date', lokiApptDateInput.value);
     fd.append('timeSlotStart', slot.start);

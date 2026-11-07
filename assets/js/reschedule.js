@@ -21,13 +21,94 @@
   var form = document.getElementById('rescheduleForm');
   var formStatus = document.getElementById('reschFormStatus');
   var nameInput = document.getElementById('reschName');
+  var phoneCodeSelect = document.getElementById('reschPhoneCode');
   var phoneInput = document.getElementById('reschPhone');
   var emailInput = document.getElementById('reschEmail');
   var dateInput = document.getElementById('reschDate');
   var timeSelect = document.getElementById('reschTime');
 
+  // Country codes a patient might book from — India is default (this is an
+  // India-based clinic); the rest cover the most common NRI/overseas
+  // destinations so an international patient can still book correctly.
+  var COUNTRY_CODES = [
+    { code: '91', name: 'India' },
+    { code: '61', name: 'Australia' },
+    { code: '973', name: 'Bahrain' },
+    { code: '880', name: 'Bangladesh' },
+    { code: '975', name: 'Bhutan' },
+    { code: '1', name: 'Canada/USA' },
+    { code: '86', name: 'China' },
+    { code: '33', name: 'France' },
+    { code: '49', name: 'Germany' },
+    { code: '62', name: 'Indonesia' },
+    { code: '353', name: 'Ireland' },
+    { code: '39', name: 'Italy' },
+    { code: '81', name: 'Japan' },
+    { code: '254', name: 'Kenya' },
+    { code: '965', name: 'Kuwait' },
+    { code: '60', name: 'Malaysia' },
+    { code: '977', name: 'Nepal' },
+    { code: '31', name: 'Netherlands' },
+    { code: '64', name: 'New Zealand' },
+    { code: '968', name: 'Oman' },
+    { code: '92', name: 'Pakistan' },
+    { code: '974', name: 'Qatar' },
+    { code: '966', name: 'Saudi Arabia' },
+    { code: '65', name: 'Singapore' },
+    { code: '27', name: 'South Africa' },
+    { code: '82', name: 'South Korea' },
+    { code: '34', name: 'Spain' },
+    { code: '94', name: 'Sri Lanka' },
+    { code: '41', name: 'Switzerland' },
+    { code: '971', name: 'UAE' },
+    { code: '44', name: 'UK' }
+  ];
+  var COUNTRY_CODES_BY_LENGTH_DESC = COUNTRY_CODES.map(function (c) { return c.code; })
+    .sort(function (a, b) { return b.length - a.length; });
+
+  (function populatePhoneCodeSelect() {
+    phoneCodeSelect.innerHTML = COUNTRY_CODES.map(function (c) {
+      return '<option value="' + c.code + '"' + (c.code === '91' ? ' selected' : '') + '>+' + c.code + ' ' + c.name + '</option>';
+    }).join('');
+  })();
+
+  // Indian mobile numbers are exactly 10 digits starting 6-9; every other
+  // country code just gets a sane generic length check (6-14 digits), since
+  // we don't carry per-country dialing rules for the rest of the world.
+  function validatePhoneNumber(code, rawNumber) {
+    var digits = (rawNumber || '').replace(/\D/g, '');
+    if (code === '91') {
+      if (!/^[6-9]\d{9}$/.test(digits)) {
+        return { ok: false, digits: digits, message: 'Please enter a valid 10-digit Indian mobile number (starts with 6-9).' };
+      }
+    } else if (digits.length < 6 || digits.length > 14) {
+      return { ok: false, digits: digits, message: 'Please enter a valid phone number (6-14 digits).' };
+    }
+    return { ok: true, digits: digits };
+  }
+
+  // Splits the phone param the cancellation/confirmation email's link
+  // carries (e.g. '+919876543210') back into { code, number } so the
+  // prefilled form shows the right country selected instead of dumping the
+  // whole string into the number field. Falls back to India + whatever
+  // digits are present when no known code prefix is found.
+  function splitPhoneCodeAndNumber(fullPhone) {
+    var s = String(fullPhone || '').trim().replace(/^\+/, '').replace(/[\s\-\(\)]/g, '');
+    for (var i = 0; i < COUNTRY_CODES_BY_LENGTH_DESC.length; i++) {
+      var code = COUNTRY_CODES_BY_LENGTH_DESC[i];
+      if (s.indexOf(code) === 0 && s.length > code.length) {
+        return { code: code, number: s.slice(code.length) };
+      }
+    }
+    return { code: '91', number: s.replace(/\D/g, '') };
+  }
+
   if (urlParams.get('name')) nameInput.value = urlParams.get('name');
-  if (urlParams.get('phone')) phoneInput.value = urlParams.get('phone');
+  if (urlParams.get('phone')) {
+    var reschPhoneSplit = splitPhoneCodeAndNumber(urlParams.get('phone'));
+    phoneCodeSelect.value = reschPhoneSplit.code;
+    phoneInput.value = reschPhoneSplit.number;
+  }
   if (urlParams.get('email')) emailInput.value = urlParams.get('email');
 
   // IST "today" as YYYY-MM-DD — read from the browser's clock but expressed
@@ -118,6 +199,17 @@
       return;
     }
 
+    var reschPhoneCode = phoneCodeSelect.value;
+    var reschPhoneResult = validatePhoneNumber(reschPhoneCode, phoneInput.value);
+    phoneInput.classList.remove('field-invalid');
+    if (!reschPhoneResult.ok) {
+      formStatus.textContent = reschPhoneResult.message;
+      formStatus.className = 'form-status error';
+      phoneInput.classList.add('field-invalid');
+      phoneInput.focus();
+      return;
+    }
+
     var submitBtn = form.querySelector('button[type="submit"]');
     var originalLabel = submitBtn.textContent;
     submitBtn.disabled = true;
@@ -128,7 +220,7 @@
     var formData = new FormData();
     formData.append('formType', 'appointment');
     formData.append('name', nameInput.value);
-    formData.append('phone', phoneInput.value);
+    formData.append('phone', '+' + reschPhoneCode + reschPhoneResult.digits);
     formData.append('email', emailValue);
     formData.append('date', dateInput.value);
     formData.append('timeSlotStart', slot.start);

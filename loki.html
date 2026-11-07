@@ -276,7 +276,10 @@
       <input type="text" id="lokiApptName" name="name" placeholder="Patient's name" required>
 
       <label for="lokiApptPhone">Phone Number</label>
-      <input type="tel" id="lokiApptPhone" name="phone" placeholder="Patient's phone number" required pattern="[0-9+\s\(\)\-]{7,}">
+      <div class="phone-field-group">
+        <select id="lokiApptPhoneCode" class="phone-code-select" aria-label="Country code"></select>
+        <input type="tel" id="lokiApptPhone" name="phone" placeholder="Patient's phone number" required inputmode="numeric" autocomplete="tel-national" pattern="[0-9]{6,14}">
+      </div>
 
       <label for="lokiApptEmail">Email Id <span class="form-optional">(optional)</span></label>
       <input type="email" id="lokiApptEmail" name="email" placeholder="patient.email@example.com">
