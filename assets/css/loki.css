@@ -125,6 +125,11 @@ html, body { overflow-x: visible; }
 }
 
 .loki-empty { color: var(--text-light); font-size: 0.92rem; text-align: center; padding: 30px 0; }
+/* The "Loading more…" row the scroll-triggered pagination (main
+   Appointment list, Search modal) appends below an already-populated
+   list -- same look as .loki-empty's message, just less vertical padding
+   since it's sitting under real rows, not standing in for an empty list. */
+.loki-scroll-sentinel { padding: 14px 0; }
 
 /* ---------- Appointment list ---------- */
 .loki-list { display: flex; flex-direction: column; gap: 10px; }

@@ -195,7 +195,12 @@ const DEFAULT_SETTINGS = [
   ['Address', '221,Rajajinagar,bangalore'],
   ['Maps Link', 'https://www.google.com/maps/search/?api=1&query=12.9865278%2C77.5501667'],
   ['Dr Lokesh Passcode', 'Lokesh@Peerona2026'],
-  ['Receptionist Passcode', 'Receptionist@Peerona2026']
+  ['Receptionist Passcode', 'Receptionist@Peerona2026'],
+  // How many bookings loki.html loads at a time (then more on scroll) in
+  // the main Appointment list and the Search modal -- see
+  // getDefaultPageSize_ and getAppointmentsPageForLoki_ below. Edit the
+  // VALUE directly in the sheet to change it; no code change needed.
+  ['DefaultNumberOfBookingToBeLoaded', '20']
 ];
 
 // No longer read by any code (collectImagesUnlimited_ replaced the old
@@ -1675,6 +1680,179 @@ function getAppointmentsForLoki_() {
   }));
 }
 
+/* ============================================================
+ * Paginated appointment queries -- loki.html's "load 20 at a time, then
+ * more on scroll" feature for the main Appointment list and the Search
+ * modal (DefaultNumberOfBookingToBeLoaded in Settings; see
+ * getDefaultPageSize_). The Insert/Delete/Push up/Push down tool uses its
+ * own, simpler getAppointmentsForDateForLoki_ further below instead of
+ * this offset/limit pager -- see that function's own comment for why.
+ *
+ * IMPORTANT: Apps Script has no indexed query engine -- getAppointmentsForLoki_
+ * still reads the WHOLE sheet every call, exactly as it always has. Paging
+ * here only shrinks the JSON response and keeps the client from ever
+ * holding the full dataset in memory; it does not reduce how much the
+ * server itself reads per request.
+ *
+ * filterAndSortMainListAppointments_ and filterAndSortSearchAppointments_
+ * deliberately mirror -- field for field -- the client-side filtering in
+ * assets/js/loki.js's renderAppointments()/renderSearchResults(). If
+ * either one's filtering logic ever changes, the matching function here
+ * must be updated to match, or the two will quietly disagree about which
+ * rows exist.
+ * ============================================================ */
+
+// Reads DefaultNumberOfBookingToBeLoaded from Settings (see
+// DEFAULT_SETTINGS above) -- falls back to 20 if the sheet's value is
+// missing, blank, or not a positive number, so a mistyped setting can
+// never silently break paging.
+function getDefaultPageSize_() {
+  const settings = getSettings_();
+  const n = parseInt(settings.defaultnumberofbookingtobeloaded, 10);
+  return (isFinite(n) && n > 0) ? n : 20;
+}
+
+// Mirrors renderAppointments()'s date-window + Status filter + Sort
+// by/order in loki.js (see that function for the authoritative comments
+// on each rule) -- returns the full matching set, sorted, NOT yet sliced
+// into a page.
+function filterAndSortMainListAppointments_(all, params) {
+  const windowStart = String(params.windowStart || '');
+  const windowEnd = String(params.windowEnd || '');
+  const statusFilter = String(params.statusFilter || 'finishedUpcoming');
+  const sortBy = String(params.sortBy || 'date');
+  const sortOrder = String(params.sortOrder || 'asc');
+
+  const inWindow = all.filter((a) => a.date >= windowStart && a.date <= windowEnd);
+
+  const visible = inWindow.filter((a) => {
+    if (statusFilter === 'all') return true;
+    if (statusFilter === 'finishedUpcoming') return (a.status || '') === '' || a.status === 'Finished';
+    return (a.status || '') === statusFilter;
+  });
+
+  const orderSign = sortOrder === 'desc' ? -1 : 1;
+  const APPT_STATUS_LABELS = { '': 'Upcoming', 'Cancelled': 'Cancelled', 'ReScheduled': 'ReScheduled', 'Finished': 'Finished', 'Past': 'Past' };
+
+  if (sortBy === 'name' || sortBy === 'status') {
+    visible.sort((a, b) => {
+      if (sortBy === 'name') {
+        return orderSign * String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' });
+      }
+      const sa = APPT_STATUS_LABELS[a.status || ''] || (a.status || '');
+      const sb = APPT_STATUS_LABELS[b.status || ''] || (b.status || '');
+      if (sa !== sb) return orderSign * sa.localeCompare(sb);
+      return (a.date + a.startTime).localeCompare(b.date + b.startTime);
+    });
+  } else {
+    // Default 'date' grouping: by date (asc/desc per sortOrder), startTime
+    // always ascending within the same date -- matches the client's own
+    // dateKeys.sort()+reverse() plus per-group time sort exactly.
+    visible.sort((a, b) => {
+      if (a.date !== b.date) return orderSign * (a.date < b.date ? -1 : 1);
+      return (a.startTime || '').localeCompare(b.startTime || '');
+    });
+  }
+
+  return visible;
+}
+
+// Mirrors renderSearchResults()'s name/date Or/And search, regex option,
+// the four date-range checkboxes, and the ascending/descending sort
+// toggle in loki.js (see that function for the authoritative comments on
+// each rule). useRegex/rangeToday/rangeEarlier/rangeFuture/rangeAll arrive
+// as the string 'true'/'false' (URL query params), not real booleans.
+function filterAndSortSearchAppointments_(all, params) {
+  const nameQueryRaw = String(params.nameQuery || '').trim();
+  const nameQuery = nameQueryRaw.toLowerCase();
+  const dateQuery = String(params.dateQuery || '');
+  const useRegex = String(params.useRegex) === 'true';
+  const searchMode = String(params.searchMode || 'or');
+  const rangeAllChecked = String(params.rangeAll) === 'true';
+  const rangeTodayChecked = rangeAllChecked || String(params.rangeToday) === 'true';
+  const rangeEarlierChecked = rangeAllChecked || String(params.rangeEarlier) === 'true';
+  const rangeFutureChecked = rangeAllChecked || String(params.rangeFuture) === 'true';
+  const anyRangeChecked = rangeAllChecked || rangeTodayChecked || rangeEarlierChecked || rangeFutureChecked;
+  const sortDir = String(params.sortDir || 'asc');
+  const todayIST = Utilities.formatDate(new Date(), TIMEZONE, 'yyyy-MM-dd');
+
+  // Caller (doGet) already validated the pattern compiles before getting
+  // here -- see its own try/catch -- so this is never expected to throw.
+  const nameRegex = (useRegex && nameQueryRaw) ? new RegExp(nameQueryRaw, 'i') : null;
+
+  const matches = all.filter((a) => {
+    let nameMatches = true;
+    if (nameQueryRaw) {
+      const nm = a.name || '';
+      nameMatches = nameRegex ? nameRegex.test(nm) : (nm.toLowerCase().indexOf(nameQuery) !== -1);
+    }
+    const dateMatches = !dateQuery || a.date === dateQuery;
+
+    let baseMatches;
+    if (nameQueryRaw && dateQuery && searchMode !== 'and') {
+      baseMatches = nameMatches || dateMatches;
+    } else {
+      baseMatches = nameMatches && dateMatches;
+    }
+
+    let rangeMatches = true;
+    if (anyRangeChecked) {
+      rangeMatches =
+        (rangeTodayChecked && a.date === todayIST) ||
+        (rangeEarlierChecked && a.date < todayIST) ||
+        (rangeFutureChecked && a.date > todayIST);
+    }
+
+    return baseMatches && rangeMatches;
+  });
+
+  matches.sort((x, y) => {
+    const cmp = x.date !== y.date ? (x.date < y.date ? -1 : 1) : (x.startTime || '').localeCompare(y.startTime || '');
+    return sortDir === 'desc' ? -cmp : cmp;
+  });
+
+  return matches;
+}
+
+// The paginated endpoint itself -- params.mode picks which filter above
+// applies, then the result is sliced to one page. Still reads the whole
+// sheet via getAppointmentsForLoki_ (see this block's header comment).
+function getAppointmentsPageForLoki_(params) {
+  const all = getAppointmentsForLoki_();
+  const mode = String(params.mode || 'mainList');
+  const filtered = (mode === 'search')
+    ? filterAndSortSearchAppointments_(all, params)
+    : filterAndSortMainListAppointments_(all, params);
+
+  const offset = Math.max(0, parseInt(params.offset, 10) || 0);
+  const limit = Math.max(1, parseInt(params.limit, 10) || getDefaultPageSize_());
+  const page = filtered.slice(offset, offset + limit);
+
+  return {
+    items: page,
+    hasMore: offset + limit < filtered.length,
+    total: filtered.length,
+    offset: offset,
+    limit: limit
+  };
+}
+
+// Used only by the Insert/Delete/Push up/Push down (reorder) tool, which
+// always works on exactly one calendar date at a time (never an
+// offset/limit window) -- reordering/pushing math needs every "Upcoming"
+// booking on that one date loaded together, or Push Up/Down could trade a
+// booking with a neighbor the admin can't actually see. Returning the
+// whole day (never artificially capped by DefaultNumberOfBookingToBeLoaded)
+// keeps that math correct; a clinic day's own slot count naturally keeps
+// this small regardless.
+function getAppointmentsForDateForLoki_(dateStr) {
+  const all = getAppointmentsForLoki_();
+  const items = all
+    .filter((a) => a.date === String(dateStr) && (a.status || '') === '')
+    .sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''));
+  return items;
+}
+
 function getMessagesForLoki_() {
   const sheet = getOrCreateMessagesSheet_();
   const lastRow = sheet.getLastRow();
@@ -1986,6 +2164,40 @@ function doGet(e) {
       return jsonResponse_({ result: 'error', message: 'Invalid passcode.' });
     }
     return jsonResponse_({ result: 'success', appointments: getAppointmentsForLoki_() });
+  }
+  if (params.action === 'lokiAppointmentsPage') {
+    // Powers the main Appointment list's and the Search modal's "load 20,
+    // then more on scroll" -- see the big comment above
+    // getAppointmentsPageForLoki_.
+    if (!checkLokiPasscode_(params.passcode)) {
+      return jsonResponse_({ result: 'error', message: 'Invalid passcode.' });
+    }
+    if (params.mode === 'search' && String(params.useRegex) === 'true' && params.nameQuery) {
+      try {
+        new RegExp(params.nameQuery, 'i');
+      } catch (regexErr) {
+        return jsonResponse_({ result: 'error', message: 'Invalid regular expression: ' + regexErr.message });
+      }
+    }
+    try {
+      const page = getAppointmentsPageForLoki_(params);
+      return jsonResponse_(Object.assign({ result: 'success' }, page));
+    } catch (err) {
+      return jsonResponse_({ result: 'error', message: err.message });
+    }
+  }
+  if (params.action === 'lokiAppointmentsForDate') {
+    // Powers the Insert/Delete/Push up/Push down tool -- see
+    // getAppointmentsForDateForLoki_'s own comment for why this is a
+    // separate, simpler, always-whole-day endpoint rather than a page of
+    // the pager above.
+    if (!checkLokiPasscode_(params.passcode)) {
+      return jsonResponse_({ result: 'error', message: 'Invalid passcode.' });
+    }
+    if (!params.date) {
+      return jsonResponse_({ result: 'error', message: 'Missing date.' });
+    }
+    return jsonResponse_({ result: 'success', items: getAppointmentsForDateForLoki_(params.date) });
   }
   if (params.action === 'lokiMessages') {
     if (!checkLokiPasscode_(params.passcode)) {

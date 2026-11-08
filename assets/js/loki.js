@@ -8,6 +8,25 @@
   var GOOGLE_SHEET_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbw485zzrMSWZ9uCpLTy4YaDfKC6xVHDOpGAVywC6dGi963b8PGRgq5AVEBxdmJ2Khy_fA/exec';
   var PASSCODE_STORAGE_KEY = 'lokiPasscode';
   var WINDOW_DAYS = 7; // default visible date-window size, both sections
+  // How many bookings the main Appointment list / Search modal / reorder
+  // tool load at a time (then more on scroll) -- overwritten from the
+  // Settings sheet's DefaultNumberOfBookingToBeLoaded value just below;
+  // 20 here is only the fallback if that fetch fails or the setting is
+  // missing/invalid.
+  var LOKI_PAGE_SIZE = 20;
+  (function loadLokiPageSize() {
+    // 'config' is the same public, unauthenticated settings endpoint the
+    // main site reads Address/Maps Link from -- safe to call before the
+    // passcode gate, and DefaultNumberOfBookingToBeLoaded isn't a
+    // passcode so it's included in what that endpoint returns.
+    fetch(GOOGLE_SHEET_WEBAPP_URL + '?action=config')
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        var n = parseInt(data && data.defaultnumberofbookingtobeloaded, 10);
+        if (isFinite(n) && n > 0) LOKI_PAGE_SIZE = n;
+      })
+      .catch(function () { /* keep the 20 fallback */ });
+  })();
   var MAX_REPLY_WORDS = 1000;
   var MAX_PRESCRIPTION_WORDS = 1000;
 
@@ -405,6 +424,29 @@
   var APPT_STATUS_VALUES = ['', 'Cancelled', 'ReScheduled', 'Finished', 'Past'];
   var APPT_STATUS_LABELS = { '': 'Upcoming', 'Cancelled': 'Cancelled', 'ReScheduled': 'ReScheduled', 'Finished': 'Finished', 'Past': 'Past' };
 
+  // Paginated loading for the main Appointment list (see
+  // getAppointmentsPageForLoki_/lokiAppointmentsPage in Code.gs) --
+  // apptLoadedItems accumulates every page fetched so far for the CURRENT
+  // window/status/sort (reset to [] whenever any of those change, since a
+  // changed filter/sort invalidates the server's page boundaries),
+  // apptPageOffset is how many rows have been loaded, apptHasMore is
+  // whether the server says there's another page, and apptPageLoading
+  // guards against two fetches in flight (a fast double-scroll, or the
+  // sentinel still visible right after a page lands) firing at once.
+  var apptLoadedItems = [];
+  var apptPageOffset = 0;
+  var apptHasMore = true;
+  var apptPageLoading = false;
+  var apptScrollObserver = null; // IntersectionObserver watching the sentinel row at the bottom of apptList
+  // Bumped on every reset (Earlier/Today/Later/Refresh/Sort/Status-filter
+  // change) -- a page fetch started by an earlier generation can still be
+  // in flight when a newer reset starts (e.g. two filter changes in quick
+  // succession); its response checks this before touching
+  // apptLoadedItems/rendering, so a since-superseded, stale response is
+  // discarded instead of appending the wrong filter's rows onto the new
+  // generation's list or duplicating a row across two generations.
+  var apptPageGeneration = 0;
+
   // Always pulls a fresh copy from the sheet and overwrites appointmentsCache
   // -- used by every button that should show current data (Earlier/Today/
   // Later, the Cancel Dates tabs/Show Bookings, and each Refresh button).
@@ -451,112 +493,133 @@
     }
   }
 
-  function loadAppointments() {
-    setLoadingStatus(apptStatus, 'Loading appointments…');
-    ensureAppointmentsLoaded(function () {
-      apptStatus.textContent = '';
-      renderAppointments();
-    }, function (err) {
-      apptStatus.textContent = 'Could not load appointments. ' + (err && err.message ? err.message : '');
-      apptStatus.className = 'form-status error';
-    });
-  }
-
-  // Always pulls fresh data and re-renders using whatever date window is
-  // currently showing -- used by Earlier/Today/Later and the Refresh
-  // button, so neither one resets the view back to "today" or shows
-  // stale data. btn (optional) is the Refresh icon button to spin/disable
-  // while the reload is in flight.
-  function reloadAppointments(btn) {
-    setLoadingStatus(apptStatus, 'Loading appointments…');
-    fetchAppointments(function () {
-      apptStatus.textContent = '';
-      renderAppointments();
-      stopRefreshSpin(btn);
-    }, function (err) {
-      apptStatus.textContent = 'Could not load appointments. ' + (err && err.message ? err.message : '');
-      apptStatus.className = 'form-status error';
-      stopRefreshSpin(btn);
-    });
-  }
-
-  function renderAppointments() {
+  // Both the initial section-open and every Earlier/Today/Later/Refresh/
+  // Sort/Status-filter change now land here: each of those changes which
+  // rows the server's first page would even return, so -- unlike a plain
+  // client-side re-sort -- there's no cheaper option than resetting back
+  // to an empty list and fetching page one fresh. btn (optional) is the
+  // Refresh icon button to spin/disable while that first page loads.
+  function resetAndLoadAppointments(btn) {
+    apptPageGeneration++;
+    apptLoadedItems = [];
+    apptPageOffset = 0;
+    apptHasMore = true;
+    apptPageLoading = false; // abandon any in-flight request's claim on this flag -- its own generation check will discard it on arrival
     var windowEnd = addDays(apptWindowStart, WINDOW_DAYS - 1);
     apptRangeLabel.textContent = formatRangeLabel(apptWindowStart, windowEnd);
+    apptList.innerHTML = '';
+    if (apptScrollObserver) { apptScrollObserver.disconnect(); apptScrollObserver = null; }
+    setLoadingStatus(apptStatus, 'Loading appointments…');
+    loadMoreApptItems(btn);
+  }
+  function loadAppointments() { resetAndLoadAppointments(); }
+  function reloadAppointments(btn) { resetAndLoadAppointments(btn); }
+  // Kept as the external "something changed, please redraw" entry point --
+  // every existing call site (Save success, prescription save, sort/filter
+  // changes, etc.) just wants the list to reflect current reality, and
+  // since that reality is now paginated from the server, reflecting it
+  // means a full reset+refetch, not a cheap client-side reorder.
+  function renderAppointments() { resetAndLoadAppointments(); }
 
-    var inWindow = (appointmentsCache || []).filter(function (a) {
-      var d = parseDateStr(a.date);
-      return d >= apptWindowStart && d <= windowEnd;
-    });
+  // Fetches the NEXT page (offset apptPageOffset) for the current window/
+  // status/sort and appends it to apptLoadedItems -- called once right
+  // after a reset (to get page one) and again each time the scroll
+  // sentinel comes into view. btn (optional, page-one calls only) is the
+  // Refresh icon button to spin/disable while this particular fetch is in
+  // flight.
+  function loadMoreApptItems(btn) {
+    if (apptPageLoading || !apptHasMore) return;
+    apptPageLoading = true;
+    var myGeneration = apptPageGeneration;
+    var windowEnd = addDays(apptWindowStart, WINDOW_DAYS - 1);
+    fetch(buildGetUrl('lokiAppointmentsPage', {
+      mode: 'mainList',
+      windowStart: toDateStr(apptWindowStart),
+      windowEnd: toDateStr(windowEnd),
+      statusFilter: apptStatusFilter,
+      sortBy: apptSortBy,
+      sortOrder: apptSortOrder,
+      offset: apptPageOffset,
+      limit: LOKI_PAGE_SIZE
+    }))
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        if (myGeneration !== apptPageGeneration) return; // superseded by a later reset -- discard
+        if (data.result !== 'success') throw new Error(data.message || 'Failed to load.');
+        apptLoadedItems = apptLoadedItems.concat(data.items);
+        apptPageOffset += data.items.length;
+        apptHasMore = !!data.hasMore;
+        apptPageLoading = false;
+        apptStatus.textContent = '';
+        renderApptListFromLoaded();
+        stopRefreshSpin(btn);
+      })
+      .catch(function (err) {
+        if (myGeneration !== apptPageGeneration) return; // superseded by a later reset -- discard
+        apptPageLoading = false;
+        apptStatus.textContent = 'Could not load appointments. ' + (err && err.message ? err.message : '');
+        apptStatus.className = 'form-status error';
+        stopRefreshSpin(btn);
+      });
+  }
 
-    // The Status filter narrows that date-windowed set down to one status
-    // (or the combined/All choices) -- see apptStatusFilter's own comment.
-    // ReScheduled rows (each just the old half of a booking that's already
-    // moved to a new row elsewhere, via the usual Reschedule action or a
-    // Push Up/Push Down) are excluded by every value here except
-    // ReScheduled/All itself, so they stay out of the default view but are
-    // still reachable when Management actually wants to see them -- and
-    // they're still fully in the sheet/audit log and in the Cancel/
-    // Reschedule search modal's results regardless.
-    var visible = inWindow.filter(function (a) {
-      if (apptStatusFilter === 'all') return true;
-      if (apptStatusFilter === 'finishedUpcoming') return (a.status || '') === '' || a.status === 'Finished';
-      return (a.status || '') === apptStatusFilter;
-    });
-
+  // Redraws #apptList from whatever's in apptLoadedItems so far (already
+  // window/status-filtered and sorted server-side -- see
+  // filterAndSortMainListAppointments_ in Code.gs, which this grouping
+  // logic must keep matching) and re-arms the scroll sentinel if more
+  // pages remain. Cheap to call on every page load: the loaded set is
+  // bounded by a handful of pages, never the whole dataset.
+  function renderApptListFromLoaded() {
     apptList.innerHTML = '';
 
-    if (!visible.length) {
+    if (!apptLoadedItems.length) {
       var empty = document.createElement('p');
       empty.className = 'loki-empty';
-      empty.textContent = inWindow.length ? 'No appointments with this status in this range.' : 'No appointments in this range.';
+      empty.textContent = 'No appointments in this range.';
       apptList.appendChild(empty);
       return;
     }
 
-    var orderSign = apptSortOrder === 'desc' ? -1 : 1;
-
     if (apptSortBy === 'name' || apptSortBy === 'status') {
       // Flat list (no date-group headers to lean on), so each row shows
       // its own date alongside the time -- see buildApptRow's showDate.
-      var sorted = visible.slice().sort(function (a, b) {
-        if (apptSortBy === 'name') {
-          return orderSign * (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+      // Already sorted by the server -- just render in the order received.
+      apptLoadedItems.forEach(function (a) { apptList.appendChild(buildApptRow(a, { showDate: true })); });
+    } else {
+      // Default: group by date (as before) -- already sorted by the
+      // server (date order per apptSortOrder, time ascending within a
+      // date), so grouping only needs to walk the loaded list in order,
+      // starting a new group whenever the date changes.
+      var currentGroup = null;
+      var currentDateKey = null;
+      apptLoadedItems.forEach(function (a) {
+        if (a.date !== currentDateKey) {
+          currentDateKey = a.date;
+          currentGroup = document.createElement('div');
+          currentGroup.className = 'loki-date-group';
+          var heading = document.createElement('h4');
+          heading.textContent = formatDateHeading(a.date);
+          currentGroup.appendChild(heading);
+          apptList.appendChild(currentGroup);
         }
-        var sa = APPT_STATUS_LABELS[a.status || ''] || (a.status || '');
-        var sb = APPT_STATUS_LABELS[b.status || ''] || (b.status || '');
-        if (sa !== sb) return orderSign * sa.localeCompare(sb);
-        // Same status -- keep it readable with date/time as the tiebreaker
-        // (always chronological, regardless of the Ascending/Descending
-        // choice, which applies to the primary sort field only).
-        return (a.date + a.startTime).localeCompare(b.date + b.startTime);
+        currentGroup.appendChild(buildApptRow(a));
       });
-      sorted.forEach(function (a) { apptList.appendChild(buildApptRow(a, { showDate: true })); });
-      return;
     }
 
-    // Default: group by date (as before), sorted by time within each day.
-    // Ascending/Descending flips which day comes first; times within a day
-    // always run in natural (earliest-first) order.
-    var byDate = {};
-    visible.forEach(function (a) { (byDate[a.date] = byDate[a.date] || []).push(a); });
-    var dateKeys = Object.keys(byDate).sort();
-    if (apptSortOrder === 'desc') dateKeys.reverse();
-
-    dateKeys.forEach(function (dateKey) {
-      var group = document.createElement('div');
-      group.className = 'loki-date-group';
-      var heading = document.createElement('h4');
-      heading.textContent = formatDateHeading(dateKey);
-      group.appendChild(heading);
-
-      byDate[dateKey]
-        .slice()
-        .sort(function (a, b) { return a.startTime.localeCompare(b.startTime); })
-        .forEach(function (a) { group.appendChild(buildApptRow(a)); });
-
-      apptList.appendChild(group);
-    });
+    if (apptHasMore) {
+      var sentinel = document.createElement('p');
+      sentinel.className = 'loki-empty loki-scroll-sentinel';
+      sentinel.textContent = 'Loading more…';
+      apptList.appendChild(sentinel);
+      if (apptScrollObserver) apptScrollObserver.disconnect();
+      apptScrollObserver = new IntersectionObserver(function (entries) {
+        if (entries[0].isIntersecting) loadMoreApptItems();
+      });
+      apptScrollObserver.observe(sentinel);
+    } else if (apptScrollObserver) {
+      apptScrollObserver.disconnect();
+      apptScrollObserver = null;
+    }
   }
 
   function apptRowStatusClass(status) {
@@ -728,7 +791,14 @@
         if (data.result !== 'success') throw new Error(data.message || 'Save failed.');
 
         changesPayload.forEach(function (c) {
-          var a = appointmentsCache.filter(function (x) { return String(x.id) === String(c.id); })[0];
+          // appointmentsCache may never have been loaded at all now that
+          // the main list is server-paginated on its own (see
+          // apptLoadedItems) -- only patch it when some OTHER still-open
+          // feature (Search's jump-to-id, Cancel All/Range, Show
+          // Original) has it loaded; renderAppointments() below re-fetches
+          // the main list itself fresh regardless, so this patch is purely
+          // for those other consumers' benefit.
+          var a = appointmentsCache && appointmentsCache.filter(function (x) { return String(x.id) === String(c.id); })[0];
           if (a) {
             if (Object.prototype.hasOwnProperty.call(c, 'status')) a.status = c.status;
             if (Object.prototype.hasOwnProperty.call(c, 'cancelledReason')) a.cancelledReason = c.cancelledReason;
@@ -781,7 +851,11 @@
     var newlyFinishedIds = changesPayload
       .filter(function (c) {
         if (!Object.prototype.hasOwnProperty.call(c, 'status') || c.status !== 'Finished') return false;
-        var a = appointmentsCache.filter(function (x) { return String(x.id) === String(c.id); })[0];
+        // The row being edited is always currently rendered from
+        // apptLoadedItems (the main list's own paginated data) -- that,
+        // not appointmentsCache (which may never have been loaded), is
+        // the reliable place to read its pre-edit status from.
+        var a = apptLoadedItems.filter(function (x) { return String(x.id) === String(c.id); })[0];
         return a && (a.status || '') !== 'Finished';
       })
       .map(function (c) { return c.id; });
@@ -1502,7 +1576,11 @@
     function next() {
       if (!queue.length) { afterAll(); return; }
       var id = queue.shift();
-      var a = appointmentsCache && appointmentsCache.filter(function (x) { return String(x.id) === String(id); })[0];
+      // Only ever called from the main list's own Save Changes flow (see
+      // triggerApptSave) -- apptLoadedItems (that list's own paginated
+      // data), not appointmentsCache, is the reliable place to find this
+      // row, since appointmentsCache may never have been loaded at all.
+      var a = apptLoadedItems.filter(function (x) { return String(x.id) === String(id); })[0];
       if (!a) { next(); return; }
       prescriptionModalCloseCallback = next;
       openPrescriptionModal(a);
@@ -1636,7 +1714,15 @@
         var failures = [];
         if (!textResult.ok) failures.push(textResult.message);
 
-        var a = appointmentsCache.filter(function (x) { return String(x.id) === String(targetId); })[0];
+        // appointmentsCache may never have been loaded (the main list and
+        // Search are both server-paginated on their own now) -- patching
+        // it here is purely a courtesy to whichever OTHER feature does
+        // have it loaded; the row this modal was actually opened from
+        // (apptLoadedItems, lokiSearchLoadedItems, or a reorder/other row
+        // object passed in directly) gets its own fresh data from the
+        // renderAppointments()/renderSearchResults() refetch below either
+        // way.
+        var a = appointmentsCache && appointmentsCache.filter(function (x) { return String(x.id) === String(targetId); })[0];
         if (textResult.ok && a) a.prescription = text;
 
         // A failed add/remove is left exactly as it was in rxImages (still
@@ -1948,13 +2034,14 @@
           if (lokiApptFormOpenedFromReorder && !isReschedule) {
             reorderTouchedDates[lokiApptDateInput.value] = true;
             if (lokiReorderModalOverlay.classList.contains('is-open')) {
-              fetchAppointments(function () {
-                buildReorderItems();
-                renderLokiReorderList();
-              }, function () {
-                // Best-effort -- the reorder tab's own fetchAppointments
-                // will simply retry the next time it's opened.
-              });
+              // The inserted booking's own date is always whatever date
+              // the reorder tool had selected when "Insert Booking Below"
+              // was clicked (that's where the button lives) -- i.e.
+              // exactly reorderSelectedDate -- so dropping that one
+              // date's fetched flag and re-loading picks up the new row
+              // right away without having to close and reopen the tab.
+              delete reorderFetchedDates[lokiApptDateInput.value];
+              loadReorderDate();
             }
           }
           // Stays open for 20 seconds after a successful booking/reschedule
@@ -2333,12 +2420,40 @@
     return row;
   }
 
+  // Paginated loading for the Search modal (see
+  // getAppointmentsPageForLoki_/lokiAppointmentsPage in Code.gs, mode
+  // 'search') -- same pattern as the main Appointment list's
+  // apptLoadedItems/apptPageOffset/apptHasMore/apptPageLoading above.
+  // lokiSearchLastParams is the exact filter the current loaded set was
+  // fetched with, so a later page asks the server for more of THIS SAME
+  // search rather than silently drifting if some other field changed
+  // in between (it can't, in practice -- every field change already
+  // calls renderSearchResults() itself, which resets and refetches).
+  var lokiSearchLoadedItems = [];
+  var lokiSearchOffset = 0;
+  var lokiSearchHasMore = true;
+  var lokiSearchLoading = false;
+  var lokiSearchLastParams = null;
+  var lokiSearchScrollObserver = null;
+  // Bumped on every reset (any field change) -- same purpose as
+  // apptPageGeneration above: typing quickly can leave an earlier
+  // keystroke's fetch still in flight when a later one starts, so each
+  // response checks this before touching lokiSearchLoadedItems/rendering,
+  // discarding a since-superseded, stale response instead of appending
+  // the wrong search's rows or duplicating a row across two searches.
+  var lokiSearchGeneration = 0;
+
   function renderSearchResults() {
+    // Abandon any in-flight fetch's claim on lokiSearchLoading -- see
+    // lokiSearchGeneration's own comment; its response will check this
+    // generation counter and discard itself instead of landing here.
+    lokiSearchGeneration++;
+    lokiSearchLoading = false;
     var nameQueryRaw = lokiSearchNameInput.value.trim();
-    var nameQuery = nameQueryRaw.toLowerCase();
     var dateQuery = lokiSearchDateInput.value;
     var useRegex = !!(lokiSearchRegexToggle && lokiSearchRegexToggle.checked);
     lokiSearchResults.innerHTML = '';
+    if (lokiSearchScrollObserver) { lokiSearchScrollObserver.disconnect(); lokiSearchScrollObserver = null; }
 
     // Keep the checkboxes' disabled/checked state correct for the current
     // date value before reading any of them below -- see
@@ -2361,79 +2476,107 @@
     // interact. "All" being checked (which also locks the other three
     // checked) is handled the same as the other three being individually
     // checked -- either way every one of today/earlier/future ends up
-    // true, so rangeMatches below just ORs them. All four are already
-    // forced false above whenever dateQuery is set.
+    // true. All four are already forced false above whenever dateQuery is
+    // set. The actual today/earlier/future MATCHING now happens server
+    // side (see filterAndSortSearchAppointments_ in Code.gs) -- this is
+    // just resolving what to send it.
     var rangeAllChecked = !!(lokiSearchRangeAll && lokiSearchRangeAll.checked);
     var rangeTodayChecked = rangeAllChecked || !!(lokiSearchRangeToday && lokiSearchRangeToday.checked);
     var rangeEarlierChecked = rangeAllChecked || !!(lokiSearchRangeEarlier && lokiSearchRangeEarlier.checked);
     var rangeFutureChecked = rangeAllChecked || !!(lokiSearchRangeFuture && lokiSearchRangeFuture.checked);
     var anyRangeChecked = rangeAllChecked || rangeTodayChecked || rangeEarlierChecked || rangeFutureChecked;
-    var todayIST = getTodayIST();
 
     if (!nameQueryRaw && !dateQuery && !anyRangeChecked) {
       var prompt = document.createElement('p');
       prompt.className = 'loki-empty';
       prompt.textContent = 'Type a name, pick a date, or choose a date range below to search.';
       lokiSearchResults.appendChild(prompt);
+      lokiSearchLastParams = null;
       return;
     }
 
     // "Use regular expression" lets Dr Lokesh/Management search by a
     // pattern (e.g. "^sh" or "sharma|verma") instead of a plain substring.
     // An invalid pattern (unbalanced brackets, etc.) must not crash the
-    // whole modal -- it's reported in place of results instead.
-    var nameRegex = null;
+    // whole modal, and is never worth a round trip to the server just to
+    // be told the same thing -- validated here, client-side, first.
     if (useRegex && nameQueryRaw) {
       try {
-        nameRegex = new RegExp(nameQueryRaw, 'i');
+        new RegExp(nameQueryRaw, 'i');
       } catch (regexErr) {
         var regexErrP = document.createElement('p');
         regexErrP.className = 'form-status error';
         regexErrP.textContent = 'Invalid regular expression: ' + (regexErr && regexErr.message ? regexErr.message : regexErr);
         lokiSearchResults.appendChild(regexErrP);
+        lokiSearchLastParams = null;
         return;
       }
     }
 
-    var matches = (appointmentsCache || []).filter(function (a) {
-      var nameMatches = true;
-      if (nameQueryRaw) {
-        var nm = a.name || '';
-        nameMatches = nameRegex ? nameRegex.test(nm) : (nm.toLowerCase().indexOf(nameQuery) !== -1);
-      }
-      var dateMatches = !dateQuery || a.date === dateQuery;
+    lokiSearchLastParams = {
+      mode: 'search',
+      nameQuery: nameQueryRaw,
+      dateQuery: dateQuery,
+      useRegex: useRegex,
+      searchMode: lokiSearchMode,
+      rangeToday: rangeTodayChecked,
+      rangeEarlier: rangeEarlierChecked,
+      rangeFuture: rangeFutureChecked,
+      rangeAll: rangeAllChecked,
+      sortDir: lokiSearchSortDir
+    };
+    lokiSearchLoadedItems = [];
+    lokiSearchOffset = 0;
+    lokiSearchHasMore = true;
 
-      // With both fields filled in, "Or" (default) shows the union --
-      // name matches OR date matches -- while "And" narrows to their
-      // intersection (a name search scoped to the chosen date). With only
-      // one field filled in there's no difference, so this only branches
-      // when both are actually in play.
-      var baseMatches;
-      if (nameQueryRaw && dateQuery && lokiSearchMode !== 'and') {
-        baseMatches = nameMatches || dateMatches;
-      } else {
-        baseMatches = nameMatches && dateMatches;
-      }
+    var loadingP = document.createElement('p');
+    loadingP.className = 'loki-empty';
+    loadingP.textContent = 'Searching…';
+    lokiSearchResults.appendChild(loadingP);
 
-      // The date-range checkboxes are a separate, independent narrowing on
-      // top of the name/date search above (not part of its own Or/And
-      // toggle) -- e.g. typing a name AND checking "Today" means "that
-      // name, only if booked for today".
-      var rangeMatches = true;
-      if (anyRangeChecked) {
-        rangeMatches =
-          (rangeTodayChecked && a.date === todayIST) ||
-          (rangeEarlierChecked && a.date < todayIST) ||
-          (rangeFutureChecked && a.date > todayIST);
-      }
+    loadMoreLokiSearchItems();
+  }
 
-      return baseMatches && rangeMatches;
-    }).sort(function (x, y) {
-      var cmp = x.date !== y.date ? (x.date < y.date ? -1 : 1) : (x.startTime || '').localeCompare(y.startTime || '');
-      return lokiSearchSortDir === 'desc' ? -cmp : cmp;
-    });
+  // Fetches the next page of the search currently described by
+  // lokiSearchLastParams -- called once right after renderSearchResults
+  // resets (to get page one) and again each time the scroll sentinel
+  // comes into view.
+  function loadMoreLokiSearchItems() {
+    if (lokiSearchLoading || !lokiSearchHasMore || !lokiSearchLastParams) return;
+    lokiSearchLoading = true;
+    var myGeneration = lokiSearchGeneration;
+    fetch(buildGetUrl('lokiAppointmentsPage', Object.assign({}, lokiSearchLastParams, {
+      offset: lokiSearchOffset,
+      limit: LOKI_PAGE_SIZE
+    })))
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        if (myGeneration !== lokiSearchGeneration) return; // superseded by a later search -- discard
+        if (data.result !== 'success') throw new Error(data.message || 'Search failed.');
+        lokiSearchLoadedItems = lokiSearchLoadedItems.concat(data.items);
+        lokiSearchOffset += data.items.length;
+        lokiSearchHasMore = !!data.hasMore;
+        lokiSearchLoading = false;
+        renderLokiSearchResultsFromLoaded();
+      })
+      .catch(function (err) {
+        if (myGeneration !== lokiSearchGeneration) return; // superseded by a later search -- discard
+        lokiSearchLoading = false;
+        lokiSearchResults.innerHTML = '';
+        var errP = document.createElement('p');
+        errP.className = 'form-status error';
+        errP.textContent = err && err.message ? err.message : 'Could not search.';
+        lokiSearchResults.appendChild(errP);
+      });
+  }
 
-    if (!matches.length) {
+  // Redraws #lokiSearchResults from whatever's in lokiSearchLoadedItems so
+  // far (already filtered/sorted server-side) and re-arms the scroll
+  // sentinel if more pages remain.
+  function renderLokiSearchResultsFromLoaded() {
+    lokiSearchResults.innerHTML = '';
+
+    if (!lokiSearchLoadedItems.length) {
       var empty = document.createElement('p');
       empty.className = 'loki-empty';
       empty.textContent = 'No matching appointments found.';
@@ -2441,7 +2584,27 @@
       return;
     }
 
-    matches.forEach(function (a) { lokiSearchResults.appendChild(buildSearchResultRow(a)); });
+    lokiSearchLoadedItems.forEach(function (a) { lokiSearchResults.appendChild(buildSearchResultRow(a)); });
+
+    if (lokiSearchHasMore) {
+      var sentinel = document.createElement('p');
+      sentinel.className = 'loki-empty loki-scroll-sentinel';
+      sentinel.textContent = 'Loading more…';
+      lokiSearchResults.appendChild(sentinel);
+      if (lokiSearchScrollObserver) lokiSearchScrollObserver.disconnect();
+      // Root must be this modal's own scrollable element (.modal-scroll-content,
+      // max-height: 90vh) -- the sentinel would otherwise already be miles
+      // below the browser's own viewport (root: null's default) long
+      // before the modal's internal scroll ever reaches it.
+      var scrollRoot = lokiSearchResults.closest('.modal-scroll-content') || null;
+      lokiSearchScrollObserver = new IntersectionObserver(function (entries) {
+        if (entries[0].isIntersecting) loadMoreLokiSearchItems();
+      }, { root: scrollRoot });
+      lokiSearchScrollObserver.observe(sentinel);
+    } else if (lokiSearchScrollObserver) {
+      lokiSearchScrollObserver.disconnect();
+      lokiSearchScrollObserver = null;
+    }
   }
 
   function openLokiCancelReschedModal() {
@@ -2456,24 +2619,11 @@
     lokiSearchSortDir = 'asc';
     renderLokiSearchSortToggle();
     lokiCancelReschedModalOverlay.classList.add('is-open');
-    // Plain loading message, not setLoadingStatus() -- that helper
-    // overwrites el.className (it's built for a one-line <p class="form-status">
-    // status area), which would clobber lokiSearchResults' own
-    // .loki-search-results layout class.
-    lokiSearchResults.innerHTML = '';
-    var loadingP = document.createElement('p');
-    loadingP.className = 'loki-empty';
-    loadingP.textContent = 'Loading appointments\u2026';
-    lokiSearchResults.appendChild(loadingP);
-    ensureAppointmentsLoaded(function () {
-      renderSearchResults();
-    }, function (err) {
-      lokiSearchResults.innerHTML = '';
-      var errP = document.createElement('p');
-      errP.className = 'form-status error';
-      errP.textContent = 'Could not load appointments. ' + (err && err.message ? err.message : '');
-      lokiSearchResults.appendChild(errP);
-    });
+    // renderSearchResults() fetches its own paginated results straight
+    // from the server now -- no need to pre-load the full appointmentsCache
+    // just to open this modal (see its own comment for why "no query yet"
+    // still short-circuits before any fetch).
+    renderSearchResults();
   }
   function closeLokiCancelReschedModal() {
     lokiCancelReschedModalOverlay.classList.remove('is-open');
@@ -2755,7 +2905,7 @@
   var lokiReorderDateInput = document.getElementById('lokiReorderDateInput');
   var lokiReorderRangeLabel = document.getElementById('lokiReorderRangeLabel');
 
-  var reorderItems = []; // the FULL staged working set -- see buildReorderItems(). Never
+  var reorderItems = []; // the staged working set, built up one fetched date at a time -- see fetchReorderItemsForDate(). Never
   // filtered by the selected date below; only what's rendered is, so
   // picking a different date never discards staged pushes/deletes made on
   // another date -- Save Changes always applies everything staged here,
@@ -2769,27 +2919,47 @@
   // close to decide whether the main Appointment list needs refreshing --
   // see closeLokiReorderModal.
   var reorderTouchedDates = {};
+  // Which dates have already been fetched into reorderItems this
+  // tool-open session (see fetchReorderItemsForDate) -- re-picking an
+  // already-fetched date (Today, the calendar picker) just re-filters
+  // what's already in memory via visibleReorderItems rather than
+  // re-fetching, so paging between dates never discards a
+  // staged-but-unsaved push or delete made while looking at a different
+  // one. Cleared (for just the affected date) whenever that date's data
+  // on the server might have actually changed -- see loadReorderDate,
+  // the Reset button, performLokiReorderSave, and the Insert Booking
+  // Below refresh.
+  var reorderFetchedDates = {};
 
-  // (Re)builds the FULL working list straight from appointmentsCache,
-  // discarding any staged pushes/deletes -- only "Upcoming" (blank-status)
-  // bookings are reorderable here; Cancelled/ReScheduled/Finished/Past
-  // ones don't occupy an active slot, so pushing or deleting them wouldn't
-  // mean anything. Deliberately NOT filtered by reorderSelectedDate -- see
-  // reorderItems' own comment. orig* is each booking's real, saved
-  // date/time -- compared against date/startTime/etc. below to know what's
-  // actually changed.
-  function buildReorderItems() {
-    reorderItems = (appointmentsCache || [])
-      .filter(function (a) { return (a.status || '') === ''; })
-      .map(function (a) {
-        return {
-          id: a.id, name: a.name, phone: a.phone, email: a.email,
-          origDate: a.date, origStartTime: a.startTime, origEndTime: a.endTime, origTimeSlotLabel: a.timeSlotLabel,
-          date: a.date, startTime: a.startTime, endTime: a.endTime, timeSlotLabel: a.timeSlotLabel,
-          pendingDelete: false
-        };
-      });
-    reorderSelected = {};
+  // Fetches exactly ONE date's "Upcoming" (blank-status) bookings
+  // straight from the sheet (see getAppointmentsForDateForLoki_/
+  // lokiAppointmentsForDate in Code.gs -- deliberately not the
+  // offset/limit pager the main list and Search use, since reordering
+  // needs every booking on this one date loaded together, never split
+  // across pages) and folds them into reorderItems, replacing any
+  // earlier copy of that same date first so this is also safe to call as
+  // a genuine refresh. orig* is each booking's real, saved date/time --
+  // compared against date/startTime/etc. below to know what's actually
+  // changed.
+  function fetchReorderItemsForDate(dateStr, onReady, onError) {
+    fetch(buildGetUrl('lokiAppointmentsForDate', { date: dateStr }))
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        if (data.result !== 'success') throw new Error(data.message || 'Failed to load.');
+        reorderItems = reorderItems.filter(function (it) { return it.date !== dateStr; });
+        data.items.forEach(function (a) {
+          reorderItems.push({
+            id: a.id, name: a.name, phone: a.phone, email: a.email,
+            origDate: a.date, origStartTime: a.startTime, origEndTime: a.endTime, origTimeSlotLabel: a.timeSlotLabel,
+            date: a.date, startTime: a.startTime, endTime: a.endTime, timeSlotLabel: a.timeSlotLabel,
+            pendingDelete: false
+          });
+        });
+        reorderFetchedDates[dateStr] = true;
+        reorderSelected = {};
+        onReady();
+      })
+      .catch(function (err) { onError(err); });
   }
 
   // Always-chronological (date+time) view of the FULL staged set, regardless
@@ -3060,10 +3230,15 @@
         // The sheet now has brand-new rows and several changed statuses --
         // a real re-fetch (not a local patch) is the only reliable way to
         // reflect that, both here and in the Appointment section's own
-        // currently-shown date range.
-        fetchAppointments(function () {
-          renderAppointments();
-          buildReorderItems();
+        // currently-shown date range. Only the dates this batch actually
+        // touched need dropping+re-fetching -- every other already-fetched
+        // date in reorderItems is untouched by this save (and, since Push
+        // Up/Down only ever trades times within the same date, that's in
+        // practice always just the one date currently being viewed).
+        Object.keys(reorderTouchedDates).forEach(function (d) { delete reorderFetchedDates[d]; });
+        reorderItems = reorderItems.filter(function (it) { return !reorderTouchedDates[it.date]; });
+        if (reorderTouchedMainApptWindow()) reloadAppointments();
+        fetchReorderItemsForDate(toDateStr(reorderSelectedDate), function () {
           renderLokiReorderList();
           setLokiReorderBusy(false);
         }, function (err) {
@@ -3079,8 +3254,6 @@
       });
   }
 
-  var reorderDataLoaded = false; // becomes true once loadReorderDate() has actually fetched -- see its own comment
-
   function showReorderPrompt() {
     lokiReorderList.innerHTML = '';
     var prompt = document.createElement('p');
@@ -3094,34 +3267,35 @@
     lokiReorderModalOverlay.classList.add('is-open');
     reorderSelectedDate = startOfToday(); // the date field defaults to today, ready to go, but nothing is fetched or shown until Today or the calendar picker is actually used -- see loadReorderDate()
     reorderTouchedDates = {}; // fresh session -- see its own comment above
-    reorderDataLoaded = false;
+    reorderItems = [];
+    reorderFetchedDates = {}; // fresh session -- nothing fetched yet
     renderLokiReorderNav();
     lokiReorderStatus.textContent = '';
     showReorderPrompt();
   }
-  // Fetches (the first time this tool-open session needs it -- see
-  // reorderDataLoaded) and displays reorderSelectedDate's bookings. Called
-  // only from the Today button and the calendar picker's own change
-  // handler below -- never automatically on open, so nothing loads until
-  // the admin actually picks Today or a date, as asked. Once loaded, later
-  // Today clicks / date picks just re-filter the same already-fetched
-  // working set (see visibleReorderItems) rather than re-fetching, so
-  // paging between dates never discards a staged-but-unsaved push or
-  // delete made while looking at a different one.
+  // Fetches (the first time this tool-open session needs THIS DATE -- see
+  // reorderFetchedDates) and displays reorderSelectedDate's bookings.
+  // Called only from the Today button and the calendar picker's own
+  // change handler below -- never automatically on open, so nothing loads
+  // until the admin actually picks Today or a date, as asked. Once a date
+  // has been fetched, later Today clicks / date picks that land back on
+  // it just re-filter what's already in memory (see visibleReorderItems)
+  // rather than re-fetching, so paging between dates never discards a
+  // staged-but-unsaved push or delete made while looking at a different
+  // one.
   function loadReorderDate() {
     renderLokiReorderNav();
-    if (reorderDataLoaded) {
+    var dateStr = toDateStr(reorderSelectedDate);
+    if (reorderFetchedDates[dateStr]) {
       renderLokiReorderList();
       return;
     }
     setLoadingStatus(lokiReorderStatus, 'Loading bookings…');
-    // Always a fresh fetch (not ensureAppointmentsLoaded's cache-if-present
-    // shortcut) -- this tool stages real schedule changes, so it should
-    // never start from data that might already be stale.
-    fetchAppointments(function () {
+    // Always a fresh fetch for this date (never reused from some other,
+    // stale in-memory copy) -- this tool stages real schedule changes, so
+    // it should never start from data that might already be stale.
+    fetchReorderItemsForDate(dateStr, function () {
       lokiReorderStatus.textContent = '';
-      buildReorderItems();
-      reorderDataLoaded = true;
       renderLokiReorderList();
     }, function (err) {
       lokiReorderStatus.textContent = 'Could not load appointments. ' + (err && err.message ? err.message : '');
@@ -3168,8 +3342,14 @@
   closeLokiReorderModalBtn.addEventListener('click', closeLokiReorderModal);
   lokiReorderSaveBtn.addEventListener('click', performLokiReorderSave);
   lokiReorderResetBtn.addEventListener('click', function () {
-    buildReorderItems();
-    renderLokiReorderList();
+    // Every staged edit this tool can make (Push Up/Down, Delete, Undo)
+    // only ever touches visibleReorderItems() -- the currently-selected
+    // date -- so discarding that date's in-memory copy and re-fetching it
+    // fresh from the server reverts everything there is to revert.
+    var dateStr = toDateStr(reorderSelectedDate);
+    delete reorderFetchedDates[dateStr];
+    reorderItems = reorderItems.filter(function (it) { return it.date !== dateStr; });
+    loadReorderDate();
   });
   var lokiReorderMouseDownOnOverlay = false;
   lokiReorderModalOverlay.addEventListener('mousedown', function (e) {
