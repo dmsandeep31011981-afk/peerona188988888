@@ -1115,12 +1115,16 @@ function findRowById_(sheet, id) {
   return -1;
 }
 
-// Called after a reschedule.html booking succeeds. If the original row
-// (by Id) is currently Cancelled and hasn't already been linked to a
-// ReScheduled Id, marks it ReScheduled and records the new booking's Id.
-// A link that's reused (already linked, or the row isn't Cancelled
-// anymore) is left alone — the new booking itself still goes through fine
-// either way, it just won't double-link.
+// Called after a reschedule.html booking succeeds. Marks the original row
+// (by Id) ReScheduled and records the new booking's Id, unless it's
+// already Finished, already ReScheduled, or already linked -- same guard
+// handleLokiReschedule_ uses. A patient can reach reschedule.html two
+// ways: from a cancellation email (original row already Cancelled), or
+// directly from their own booking confirmation email's Reschedule link
+// (original row still blank/Upcoming -- never cancelled first). Both must
+// free up the original slot the same way, so this no longer requires the
+// row to already be Cancelled -- it used to, which silently left the
+// original slot occupied forever for the second case.
 function linkRescheduledAppointment_(originalId, newId) {
   const sheet = getOrCreateAppointmentsSheet_();
   const row = findRowById_(sheet, originalId);
@@ -1128,15 +1132,15 @@ function linkRescheduledAppointment_(originalId, newId) {
 
   const status = String(sheet.getRange(row, 10).getValue() || '').trim();
   const existingLink = String(sheet.getRange(row, 11).getValue() || '').trim();
-  if (status === STATUS_CANCELLED && !existingLink) {
-    sheet.getRange(row, 10).setValue(STATUS_RESCHEDULED);
-    sheet.getRange(row, 11).setValue(newId);
-    // The patient triggered this by rebooking from the cancellation email's
-    // reschedule link, so it's logged as their action, same as the new
-    // booking it's paired with.
-    logTransactionSafe_('BookedAppointments', originalId, ACTION_ID_MODIFY, USER_ID_PATIENT,
-      'Status: Cancelled -> ReScheduled | ReScheduledId:' + newId);
-  }
+  if (status === STATUS_FINISHED || status === STATUS_RESCHEDULED || existingLink) return;
+
+  sheet.getRange(row, 10).setValue(STATUS_RESCHEDULED);
+  sheet.getRange(row, 11).setValue(newId);
+  // The patient triggered this by rebooking from their own email's
+  // reschedule link, so it's logged as their action, same as the new
+  // booking it's paired with.
+  logTransactionSafe_('BookedAppointments', originalId, ACTION_ID_MODIFY, USER_ID_PATIENT,
+    'Status: ' + (status || '-') + ' -> ReScheduled | ReScheduledId:' + newId);
 }
 
 function handleAppointment_(params) {
