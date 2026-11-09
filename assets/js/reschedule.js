@@ -150,7 +150,10 @@
   // re-checks on submit in case someone else grabs the same slot meanwhile.
   var refreshSlotAvailability = function () {
     if (!dateInput.value) return;
-    fetch(GOOGLE_SHEET_WEBAPP_URL + '?action=availability&date=' + encodeURIComponent(dateInput.value))
+    // '&_=' + Date.now() busts any browser/CDN caching of this GET so a
+    // just-made Cancel/Reschedule is reflected immediately, not after a
+    // stale cached response expires.
+    fetch(GOOGLE_SHEET_WEBAPP_URL + '?action=availability&date=' + encodeURIComponent(dateInput.value) + '&_=' + Date.now(), { cache: 'no-store' })
       .then(function (res) { return res.json(); })
       .then(function (data) {
         var booked = (data && data.bookedSlots) || [];

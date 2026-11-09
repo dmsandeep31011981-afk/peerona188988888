@@ -841,7 +841,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!apptTimeSelect || !apptDateInput || !apptDateInput.value) return;
     if (!GOOGLE_SHEET_WEBAPP_URL || GOOGLE_SHEET_WEBAPP_URL.indexOf('PASTE_YOUR') === 0) return;
     try {
-      const res = await fetch(GOOGLE_SHEET_WEBAPP_URL + '?action=availability&date=' + encodeURIComponent(apptDateInput.value));
+      // '&_=' + Date.now() busts any browser/CDN caching of this GET so a
+      // just-made Cancel/Reschedule is reflected immediately, not after a
+      // stale cached response expires.
+      const res = await fetch(GOOGLE_SHEET_WEBAPP_URL + '?action=availability&date=' + encodeURIComponent(apptDateInput.value) + '&_=' + Date.now(), { cache: 'no-store' });
       const data = await res.json();
       const booked = (data && data.bookedSlots) || [];
       const previousValue = apptTimeSelect.value;

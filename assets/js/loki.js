@@ -1852,7 +1852,10 @@
 
   function lokiApptRefreshSlotAvailability() {
     if (!lokiApptDateInput.value) return;
-    fetch(GOOGLE_SHEET_WEBAPP_URL + '?action=availability&date=' + encodeURIComponent(lokiApptDateInput.value))
+    // '&_=' + Date.now() busts any browser/CDN caching of this GET so a
+    // just-made Cancel/Reschedule is reflected immediately, not after a
+    // stale cached response expires.
+    fetch(GOOGLE_SHEET_WEBAPP_URL + '?action=availability&date=' + encodeURIComponent(lokiApptDateInput.value) + '&_=' + Date.now(), { cache: 'no-store' })
       .then(function (res) { return res.json(); })
       .then(function (data) {
         var booked = (data && data.bookedSlots) || [];
