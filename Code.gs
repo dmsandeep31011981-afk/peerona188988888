@@ -2090,6 +2090,97 @@ function handleLokiRemovePrescriptionImage_(params) {
   }
 }
 
+// Pulls the Drive file id out of either URL shape saveImageAndGetUrl_/
+// saveRxFileAndGetUrl_ hand out -- the thumbnail endpoint
+// ('...?id=XXXX&sz=...') used for photos, or the in-browser preview URL
+// ('.../file/d/XXXX/preview') used for non-image Prescription attachments
+// (PDF/Word/Excel/PowerPoint). Returns '' if neither pattern matches.
+function extractDriveFileId_(url) {
+  if (!url) return '';
+  const str = String(url);
+  let m = str.match(/[?&]id=([^&]+)/);
+  if (m) return m[1];
+  m = str.match(/\/file\/d\/([^/]+)/);
+  if (m) return m[1];
+  return '';
+}
+
+// Emails the current Prescription notes + every currently-attached photo/
+// file for one booking to its registered email address -- called from
+// loki.html right after the Prescription modal's Save fully completes
+// (text + any photo adds/removes), so it always reflects the final,
+// post-save state rather than whatever was true mid-save. A booking with
+// no registered email is silently a no-op (sent: false, not an error) --
+// same "email is optional" rule every other patient email in this file
+// follows. Each attachment is re-fetched from Drive by file id (the
+// blobs from the original upload requests are long gone by the time this
+// runs) -- one failed attachment is skipped rather than failing the whole
+// email, same resilience pattern as sendNotificationEmail_'s own photo
+// handling.
+function sendPrescriptionSavedEmail_(email, name, dateStr, label, prescription, photos) {
+  const subject = 'Your prescription from PeerOna — ' + dateStr;
+  let body =
+    'Hi ' + (name || 'there') + ',\n\n' +
+    'Here is your prescription from your appointment on ' + dateStr + ' (' + (label || '-') + '):\n\n' +
+    (prescription ? prescription : '(No notes were added.)') + '\n\n';
+
+  const attachments = [];
+  if (photos.length) {
+    body += (photos.length > 1 ? 'Files' : 'File') + ' (also attached where possible):\n';
+    photos.forEach((p, i) => {
+      body += (i + 1) + '. ' + (p.name || 'Attachment ' + (i + 1)) + ': ' + p.url + '\n';
+      const fileId = extractDriveFileId_(p.url);
+      if (!fileId) return;
+      try {
+        attachments.push(DriveApp.getFileById(fileId).getBlob());
+      } catch (fileErr) {
+        // Swallow — the link above still gets the patient to this one file.
+      }
+    });
+    body += '\n';
+  } else {
+    body += 'No photos or files were attached.\n\n';
+  }
+  body += '— PeerOna';
+
+  const options = {};
+  if (attachments.length) options.attachments = attachments;
+  MailApp.sendEmail(email, subject, body, options);
+}
+
+function handleLokiSendPrescriptionEmail_(params) {
+  const actingUser = resolveLokiUser_(params.passcode);
+  if (!actingUser) {
+    return jsonResponse_({ result: 'error', message: 'Invalid passcode.' });
+  }
+
+  const sheet = getOrCreateAppointmentsSheet_();
+  const row = findRowById_(sheet, params.id);
+  if (row === -1) {
+    return jsonResponse_({ result: 'error', message: 'Booking not found.' });
+  }
+
+  const email = String(sheet.getRange(row, 9).getValue() || '').trim();
+  if (!email) {
+    return jsonResponse_({ result: 'success', sent: false });
+  }
+
+  const name = sheet.getRange(row, 3).getValue();
+  const dateStr = formatDateForCompare_(sheet.getRange(row, 5).getValue());
+  const label = sheet.getRange(row, 8).getValue();
+  const prescription = String(sheet.getRange(row, 12).getValue() || '').trim();
+  const imagesIndex = getAllImagesIndexed_();
+  const photos = getImagesForRow_(imagesIndex, 'BookedAppointments', params.id);
+
+  try {
+    sendPrescriptionSavedEmail_(email, name, dateStr, label, prescription, photos);
+  } catch (mailErr) {
+    return jsonResponse_({ result: 'error', message: mailErr.message });
+  }
+
+  return jsonResponse_({ result: 'success', sent: true });
+}
+
 // Saves Dr. Lokesh's reply (from loki.html) into the InLineReply column of
 // the matching "Messages" row.
 function handleLokiSendReply_(params) {
@@ -2225,6 +2316,9 @@ function doPost(e) {
   }
   if (params.action === 'lokiRemovePrescriptionImage') {
     return handleLokiRemovePrescriptionImage_(params);
+  }
+  if (params.action === 'lokiSendPrescriptionEmail') {
+    return handleLokiSendPrescriptionEmail_(params);
   }
   if (params.action === 'lokiReschedule') {
     return handleLokiReschedule_(params);

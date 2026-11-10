@@ -1766,6 +1766,20 @@
         showSavedToast();
         renderAppointments();
         setTimeout(closePrescriptionModal, 900);
+
+        // Mails the final notes + every currently-attached photo/file to the
+        // patient's registered email, if they gave one -- fired here (not
+        // from the server's own prescription-text save above) so it always
+        // reads the post-save state, after any photo adds/removes from this
+        // same Save click have also finished. Best-effort: never blocks or
+        // changes the "Prescription saved." success feedback above.
+        var emailFd = new FormData();
+        emailFd.append('action', 'lokiSendPrescriptionEmail');
+        emailFd.append('passcode', currentPasscode);
+        emailFd.append('id', targetId);
+        fetch(GOOGLE_SHEET_WEBAPP_URL, { method: 'POST', body: emailFd }).catch(function () {
+          // Swallow — the prescription itself is already saved, which is what matters most.
+        });
       })
       .finally(function () {
         submitBtn.disabled = false;
