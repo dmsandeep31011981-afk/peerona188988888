@@ -24,11 +24,18 @@
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
+/* overscroll-behavior-x: none stops a two-finger trackpad scroll that
+   drifts even slightly sideways from being read by Chrome/Edge as a
+   swipe-to-go-back/forward gesture, which would otherwise navigate the
+   page away mid-scroll. */
+html { overscroll-behavior-x: none; }
+
 body {
   font-family: var(--font-body);
   color: var(--text-dark);
   background: var(--cream);
   line-height: 1.6;
+  overscroll-behavior-x: none;
 }
 
 h1 { font-family: var(--font-heading); font-weight: 600; line-height: 1.25; color: var(--text-dark); }

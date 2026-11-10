@@ -27,7 +27,15 @@
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
-html { scroll-behavior: smooth; overflow-x: hidden; width: 100%; }
+/* overscroll-behavior-x: none stops a two-finger trackpad scroll that
+   drifts even slightly sideways from being read by Chrome/Edge as a
+   swipe-to-go-back/forward gesture -- without this, scrolling a page (or
+   a modal/window on it) with two fingers can trigger a real browser
+   navigation, which closes whatever modal was open since the whole page
+   navigates away. overflow-x: hidden alone does not prevent this --
+   that only stops actual horizontal scrolling, not the OS-level swipe
+   gesture, which is a separate browser feature. */
+html { scroll-behavior: smooth; overflow-x: hidden; overscroll-behavior-x: none; width: 100%; }
 
 body {
   font-family: var(--font-body);
@@ -35,6 +43,7 @@ body {
   background: var(--cream);
   line-height: 1.7;
   overflow-x: hidden;
+  overscroll-behavior-x: none;
   width: 100%;
 }
 
