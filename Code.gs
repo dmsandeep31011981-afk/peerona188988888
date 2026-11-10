@@ -1776,7 +1776,15 @@ function filterAndSortSearchAppointments_(all, params) {
   const rangeTodayChecked = rangeAllChecked || String(params.rangeToday) === 'true';
   const rangeEarlierChecked = rangeAllChecked || String(params.rangeEarlier) === 'true';
   const rangeFutureChecked = rangeAllChecked || String(params.rangeFuture) === 'true';
-  const anyRangeChecked = rangeAllChecked || rangeTodayChecked || rangeEarlierChecked || rangeFutureChecked;
+  // An explicit "Search By Date Range" pick (arbitrary start..end, inclusive)
+  // -- mutually exclusive with the four relative checkboxes above; the
+  // client already clears/disables those the moment a custom range is
+  // applied (see openDateRangeModal's callers in loki.js), and this takes
+  // priority here too in case a stale value ever slipped through.
+  const rangeStart = String(params.rangeStart || '');
+  const rangeEnd = String(params.rangeEnd || '');
+  const hasCustomRange = !!(rangeStart && rangeEnd);
+  const anyRangeChecked = hasCustomRange || rangeAllChecked || rangeTodayChecked || rangeEarlierChecked || rangeFutureChecked;
   const sortDir = String(params.sortDir || 'asc');
   const todayIST = Utilities.formatDate(new Date(), TIMEZONE, 'yyyy-MM-dd');
 
@@ -1800,7 +1808,9 @@ function filterAndSortSearchAppointments_(all, params) {
     }
 
     let rangeMatches = true;
-    if (anyRangeChecked) {
+    if (hasCustomRange) {
+      rangeMatches = a.date >= rangeStart && a.date <= rangeEnd;
+    } else if (anyRangeChecked) {
       rangeMatches =
         (rangeTodayChecked && a.date === todayIST) ||
         (rangeEarlierChecked && a.date < todayIST) ||

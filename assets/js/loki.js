@@ -389,6 +389,68 @@
     }).catch(function () { /* stay on the gate, user can retype */ });
   })();
 
+  /* ---------- Search By Date Range sub-modal (shared) ----------
+     One small modal reused by both the Appointment Detail Section and the
+     Search Booking/Cancel/Reschedule modal -- openDateRangeModal takes the
+     values to prefill and a callback invoked with (start, end) date
+     strings once the admin picks a valid range and clicks Search; the
+     modal closes itself first, then the callback runs (same "close, then
+     let the parent view react" order the feature was asked for). */
+  var dateRangeModalOverlay = document.getElementById('dateRangeModalOverlay');
+  var closeDateRangeModalBtn = document.getElementById('closeDateRangeModal');
+  var dateRangeStartInput = document.getElementById('dateRangeStartInput');
+  var dateRangeEndInput = document.getElementById('dateRangeEndInput');
+  var dateRangeStatus = document.getElementById('dateRangeStatus');
+  var dateRangeSearchBtn = document.getElementById('dateRangeSearchBtn');
+  var dateRangeApplyCallback = null; // set fresh by whichever context opens the modal
+
+  function openDateRangeModal(prefillStart, prefillEnd, onApply) {
+    dateRangeStartInput.value = prefillStart || '';
+    dateRangeEndInput.value = prefillEnd || '';
+    dateRangeStatus.textContent = '';
+    dateRangeStatus.className = 'form-status';
+    dateRangeApplyCallback = onApply;
+    dateRangeModalOverlay.classList.add('is-open');
+  }
+  function closeDateRangeModal() {
+    dateRangeModalOverlay.classList.remove('is-open');
+    dateRangeApplyCallback = null;
+  }
+  // Keeps End from ever landing before Start without blocking the admin
+  // with an error for what's almost always just a fat-fingered pick --
+  // the actual Search click below still validates both are present.
+  dateRangeStartInput.addEventListener('change', function () {
+    if (dateRangeStartInput.value && dateRangeEndInput.value && dateRangeEndInput.value < dateRangeStartInput.value) {
+      dateRangeEndInput.value = dateRangeStartInput.value;
+    }
+  });
+  dateRangeSearchBtn.addEventListener('click', function () {
+    var start = dateRangeStartInput.value;
+    var end = dateRangeEndInput.value;
+    if (!start || !end) {
+      dateRangeStatus.textContent = 'Please pick both a start and end date.';
+      dateRangeStatus.className = 'form-status error';
+      return;
+    }
+    if (end < start) {
+      dateRangeStatus.textContent = 'End date cannot be before start date.';
+      dateRangeStatus.className = 'form-status error';
+      return;
+    }
+    var cb = dateRangeApplyCallback;
+    closeDateRangeModal();
+    if (cb) cb(start, end);
+  });
+  closeDateRangeModalBtn.addEventListener('click', closeDateRangeModal);
+  var dateRangeMouseDownOnOverlay = false;
+  dateRangeModalOverlay.addEventListener('mousedown', function (e) {
+    dateRangeMouseDownOnOverlay = (e.target === dateRangeModalOverlay);
+  });
+  dateRangeModalOverlay.addEventListener('click', function (e) {
+    if (e.target === dateRangeModalOverlay && dateRangeMouseDownOnOverlay) closeDateRangeModal();
+    dateRangeMouseDownOnOverlay = false;
+  });
+
   /* ---------- Appointment Section ---------- */
   var apptToggle = document.getElementById('apptToggle');
   var apptBody = document.getElementById('apptBody');
@@ -399,6 +461,10 @@
   var apptNextBtn = document.getElementById('apptNextBtn');
   var apptTodayBtn = document.getElementById('apptTodayBtn');
   var apptRefreshBtn = document.getElementById('apptRefreshBtn');
+  var apptDateRangeBtn = document.getElementById('apptDateRangeBtn');
+  var apptCustomRangeRow = document.getElementById('apptCustomRangeRow');
+  var apptCustomRangeBadge = document.getElementById('apptCustomRangeBadge');
+  var apptCustomRangeClearBtn = document.getElementById('apptCustomRangeClearBtn');
   var apptStatusFilterSelect = document.getElementById('apptStatusFilterSelect');
   var apptSortSelect = document.getElementById('apptSortSelect');
   var apptSortOrderSelect = document.getElementById('apptSortOrderSelect');
@@ -410,6 +476,14 @@
 
   var appointmentsCache = null; // array, fetched once per unlock (or forced refresh)
   var apptWindowStart = startOfToday(); // appointments default forward: today .. +6
+  // Set (to a 'YYYY-MM-DD' string) by "Search By Date Range" below -- while
+  // non-null, apptWindowStart doubles as that custom range's OWN start
+  // (instead of today..+6's start) and this is its end, overriding the
+  // normal WINDOW_DAYS computation everywhere windowEnd is worked out
+  // below. Cleared back to null by Earlier/Today/Later/the section being
+  // reopened (all genuinely different "browse the rolling window" actions)
+  // and by its own Clear button.
+  var apptCustomRangeEnd = null;
   var apptSortBy = 'date'; // 'date' (grouped, default) | 'name' | 'status' -- see renderAppointments
   var apptSortOrder = 'asc'; // 'asc' (default) | 'desc' -- see renderAppointments
   // '' (Upcoming) | 'Cancelled' | 'Finished' | 'Past' | 'ReScheduled' | 'all'
@@ -505,8 +579,10 @@
     apptPageOffset = 0;
     apptHasMore = true;
     apptPageLoading = false; // abandon any in-flight request's claim on this flag -- its own generation check will discard it on arrival
-    var windowEnd = addDays(apptWindowStart, WINDOW_DAYS - 1);
+    var windowEnd = apptCustomRangeEnd ? parseDateStr(apptCustomRangeEnd) : addDays(apptWindowStart, WINDOW_DAYS - 1);
     apptRangeLabel.textContent = formatRangeLabel(apptWindowStart, windowEnd);
+    apptCustomRangeRow.hidden = !apptCustomRangeEnd;
+    if (apptCustomRangeEnd) apptCustomRangeBadge.textContent = 'Custom range: ' + formatRangeLabel(apptWindowStart, windowEnd);
     apptList.innerHTML = '';
     if (apptScrollObserver) { apptScrollObserver.disconnect(); apptScrollObserver = null; }
     setLoadingStatus(apptStatus, 'Loading appointments…');
@@ -531,7 +607,7 @@
     if (apptPageLoading || !apptHasMore) return;
     apptPageLoading = true;
     var myGeneration = apptPageGeneration;
-    var windowEnd = addDays(apptWindowStart, WINDOW_DAYS - 1);
+    var windowEnd = apptCustomRangeEnd ? parseDateStr(apptCustomRangeEnd) : addDays(apptWindowStart, WINDOW_DAYS - 1);
     fetch(buildGetUrl('lokiAppointmentsPage', {
       mode: 'mainList',
       windowStart: toDateStr(apptWindowStart),
@@ -890,8 +966,9 @@
     apptToggle.setAttribute('aria-expanded', String(!expanded));
     apptBody.hidden = expanded;
     // Every time the section is opened, snap back to today's window --
-    // don't leave it wherever a previous Earlier/Later click left off.
-    if (!expanded) { apptWindowStart = startOfToday(); loadAppointments(); }
+    // don't leave it wherever a previous Earlier/Later click (or a custom
+    // date range) left off.
+    if (!expanded) { apptWindowStart = startOfToday(); apptCustomRangeEnd = null; loadAppointments(); }
   });
   // Earlier/Today/Later/Refresh all load a different (or refreshed) set of
   // appointments, so any Sort by/Order/Status the doctor had picked for the
@@ -906,9 +983,36 @@
     apptSortOrderSelect.value = 'asc';
     apptStatusFilterSelect.value = 'finishedUpcoming';
   }
-  apptPrevBtn.addEventListener('click', function () { apptWindowStart = addDays(apptWindowStart, -WINDOW_DAYS); resetApptSort(); reloadAppointments(); });
-  apptNextBtn.addEventListener('click', function () { apptWindowStart = addDays(apptWindowStart, WINDOW_DAYS); resetApptSort(); reloadAppointments(); });
-  apptTodayBtn.addEventListener('click', function () { apptWindowStart = startOfToday(); resetApptSort(); reloadAppointments(); });
+  // Earlier/Today/Later are the normal rolling-window nav -- stepping any
+  // of them away from whatever custom range "Search By Date Range" may
+  // have applied, back to the plain WINDOW_DAYS-wide browsing this section
+  // started with.
+  apptPrevBtn.addEventListener('click', function () { apptCustomRangeEnd = null; apptWindowStart = addDays(apptWindowStart, -WINDOW_DAYS); resetApptSort(); reloadAppointments(); });
+  apptNextBtn.addEventListener('click', function () { apptCustomRangeEnd = null; apptWindowStart = addDays(apptWindowStart, WINDOW_DAYS); resetApptSort(); reloadAppointments(); });
+  apptTodayBtn.addEventListener('click', function () { apptCustomRangeEnd = null; apptWindowStart = startOfToday(); resetApptSort(); reloadAppointments(); });
+  // Opens the shared Date Range modal prefilled with whatever range is
+  // currently showing (the normal today..+6 window, or an already-applied
+  // custom one), and on Search, switches this section into custom-range
+  // mode: apptWindowStart becomes the picked start, apptCustomRangeEnd the
+  // picked end, both read by resetAndLoadAppointments/loadMoreApptItems
+  // above instead of the usual WINDOW_DAYS computation.
+  apptDateRangeBtn.addEventListener('click', function () {
+    var currentEnd = apptCustomRangeEnd ? parseDateStr(apptCustomRangeEnd) : addDays(apptWindowStart, WINDOW_DAYS - 1);
+    openDateRangeModal(toDateStr(apptWindowStart), toDateStr(currentEnd), function (start, end) {
+      apptWindowStart = parseDateStr(start);
+      apptCustomRangeEnd = end;
+      resetApptSort();
+      reloadAppointments();
+    });
+  });
+  // Mirrors Today's own reset -- the "Clear" half of "mentioned with
+  // colour and option to clear this search and reset everything".
+  apptCustomRangeClearBtn.addEventListener('click', function () {
+    apptCustomRangeEnd = null;
+    apptWindowStart = startOfToday();
+    resetApptSort();
+    reloadAppointments();
+  });
   apptRefreshBtn.addEventListener('click', function () { resetApptSort(); startRefreshSpin(apptRefreshBtn); reloadAppointments(apptRefreshBtn); });
   // Just re-orders what's already loaded for the current date window --
   // no need to go back to the server for this.
@@ -2106,6 +2210,16 @@
   var lokiSearchRangeFutureLabel = document.getElementById('lokiSearchRangeFutureLabel');
   var lokiSearchRangeAllLabel = document.getElementById('lokiSearchRangeAllLabel');
   var lokiSearchSortToggle = document.getElementById('lokiSearchSortToggle');
+  var lokiSearchDateRangeBtn = document.getElementById('lokiSearchDateRangeBtn');
+  var lokiSearchCustomRangeRow = document.getElementById('lokiSearchCustomRangeRow');
+  var lokiSearchCustomRangeBadge = document.getElementById('lokiSearchCustomRangeBadge');
+  var lokiSearchCustomRangeClearBtn = document.getElementById('lokiSearchCustomRangeClearBtn');
+  // Set (to a { start, end } object of 'YYYY-MM-DD' strings) by "Search By
+  // Date Range" below -- mutually exclusive with the exact Date field and
+  // the Today/Earlier/Tomorrow & Further Dates/All checkboxes (see
+  // lokiSearchSyncRangeCheckboxState), same as those already are with each
+  // other.
+  var lokiSearchCustomRange = null;
 
   // Lets "View Rescheduled Booking" drill down multiple levels (a booking
   // rescheduled to another booking that was itself rescheduled again, and
@@ -2159,7 +2273,11 @@
   // -- the date picker, Back, Clear, or a "View Rescheduled Booking" jump
   // -- instead of two separate call sites fighting over .disabled.
   function lokiSearchSyncRangeCheckboxState(dateIsPicked) {
-    if (dateIsPicked) {
+    // A custom "Search By Date Range" pick is the same kind of override an
+    // exact Date already is -- it already pins down exactly which bucket
+    // every result falls in, so all four checkboxes are just as moot.
+    var forceDisable = dateIsPicked || !!lokiSearchCustomRange;
+    if (forceDisable) {
       [lokiSearchRangeToday, lokiSearchRangeEarlier, lokiSearchRangeFuture, lokiSearchRangeAll].forEach(function (cb) {
         if (cb) { cb.checked = false; cb.disabled = true; }
       });
@@ -2172,11 +2290,11 @@
       });
       if (lokiSearchRangeAll) lokiSearchRangeAll.disabled = false;
     }
-    var anyDisabled = dateIsPicked || !!(lokiSearchRangeAll && lokiSearchRangeAll.checked);
+    var anyDisabled = forceDisable || !!(lokiSearchRangeAll && lokiSearchRangeAll.checked);
     [lokiSearchRangeTodayLabel, lokiSearchRangeEarlierLabel, lokiSearchRangeFutureLabel].forEach(function (label) {
       if (label) label.classList.toggle('is-disabled', anyDisabled);
     });
-    if (lokiSearchRangeAllLabel) lokiSearchRangeAllLabel.classList.toggle('is-disabled', dateIsPicked);
+    if (lokiSearchRangeAllLabel) lokiSearchRangeAllLabel.classList.toggle('is-disabled', forceDisable);
   }
   // Back to the blank/default state -- used when the modal is opened
   // fresh, Clear is clicked, and (temporarily, restored on Back) when
@@ -2190,6 +2308,8 @@
     if (lokiSearchRangeEarlier) lokiSearchRangeEarlier.checked = false;
     if (lokiSearchRangeFuture) lokiSearchRangeFuture.checked = false;
     if (lokiSearchRangeAll) lokiSearchRangeAll.checked = false;
+    lokiSearchCustomRange = null;
+    lokiSearchCustomRangeRow.hidden = true;
   }
 
   // Same "blank/Past only" rule as the main Cancel Dates section -- an
@@ -2501,7 +2621,17 @@
     var rangeTodayChecked = rangeAllChecked || !!(lokiSearchRangeToday && lokiSearchRangeToday.checked);
     var rangeEarlierChecked = rangeAllChecked || !!(lokiSearchRangeEarlier && lokiSearchRangeEarlier.checked);
     var rangeFutureChecked = rangeAllChecked || !!(lokiSearchRangeFuture && lokiSearchRangeFuture.checked);
-    var anyRangeChecked = rangeAllChecked || rangeTodayChecked || rangeEarlierChecked || rangeFutureChecked;
+    var anyRangeChecked = !!lokiSearchCustomRange || rangeAllChecked || rangeTodayChecked || rangeEarlierChecked || rangeFutureChecked;
+
+    // "Somewhere start date and end date is mentioned with colour" + Clear
+    // -- shown only while a custom range from "Search By Date Range" is
+    // active (never for the plain Today/Earlier/.../All checkboxes, which
+    // already show their own checked state).
+    lokiSearchCustomRangeRow.hidden = !lokiSearchCustomRange;
+    if (lokiSearchCustomRange) {
+      lokiSearchCustomRangeBadge.textContent = 'Custom range: ' +
+        formatRangeLabel(parseDateStr(lokiSearchCustomRange.start), parseDateStr(lokiSearchCustomRange.end));
+    }
 
     if (!nameQueryRaw && !dateQuery && !anyRangeChecked) {
       var prompt = document.createElement('p');
@@ -2540,6 +2670,8 @@
       rangeEarlier: rangeEarlierChecked,
       rangeFuture: rangeFutureChecked,
       rangeAll: rangeAllChecked,
+      rangeStart: lokiSearchCustomRange ? lokiSearchCustomRange.start : '',
+      rangeEnd: lokiSearchCustomRange ? lokiSearchCustomRange.end : '',
       sortDir: lokiSearchSortDir
     };
     lokiSearchLoadedItems = [];
@@ -2674,6 +2806,7 @@
       rangeEarlier: !!(lokiSearchRangeEarlier && lokiSearchRangeEarlier.checked),
       rangeFuture: !!(lokiSearchRangeFuture && lokiSearchRangeFuture.checked),
       rangeAll: !!(lokiSearchRangeAll && lokiSearchRangeAll.checked),
+      customRange: lokiSearchCustomRange,
       sortDir: lokiSearchSortDir
     });
     // A date-range checkbox left checked from before this jump could hide
@@ -2740,6 +2873,7 @@
     if (lokiSearchRangeToday) lokiSearchRangeToday.checked = !!prevState.rangeAll || !!prevState.rangeToday;
     if (lokiSearchRangeEarlier) lokiSearchRangeEarlier.checked = !!prevState.rangeAll || !!prevState.rangeEarlier;
     if (lokiSearchRangeFuture) lokiSearchRangeFuture.checked = !!prevState.rangeAll || !!prevState.rangeFuture;
+    lokiSearchCustomRange = prevState.customRange || null;
     lokiSearchSortDir = prevState.sortDir || 'asc';
     renderLokiSearchSortToggle();
     updateLokiSearchBackBtnVisibility();
@@ -2750,7 +2884,13 @@
   document.getElementById('lokiCancelReschedTab').addEventListener('click', openLokiCancelReschedModal);
   closeLokiCancelReschedModalBtn.addEventListener('click', closeLokiCancelReschedModal);
   lokiSearchNameInput.addEventListener('input', renderSearchResults);
-  lokiSearchDateInput.addEventListener('change', renderSearchResults);
+  // Picking an exact date and a custom "Search By Date Range" range are
+  // mutually exclusive (same reasoning as the date-range button clearing
+  // this field the other way, above) -- an exact date just entered wins.
+  lokiSearchDateInput.addEventListener('change', function () {
+    if (lokiSearchDateInput.value) lokiSearchCustomRange = null;
+    renderSearchResults();
+  });
   if (lokiSearchRegexToggle) lokiSearchRegexToggle.addEventListener('change', renderSearchResults);
   if (lokiSearchModeToggle) {
     lokiSearchModeToggle.addEventListener('click', function () {
@@ -2793,11 +2933,35 @@
     if (lokiSearchRegexToggle) lokiSearchRegexToggle.checked = false;
     lokiSearchMode = 'or';
     renderLokiSearchModeToggle();
-    resetLokiSearchRangeCheckboxes();
+    resetLokiSearchRangeCheckboxes(); // also clears lokiSearchCustomRange + hides its badge row
     lokiSearchSortDir = 'asc';
     renderLokiSearchSortToggle();
     lokiSearchNavStack = [];
     updateLokiSearchBackBtnVisibility();
+    renderSearchResults();
+  });
+  // Opens the shared Date Range modal prefilled with whatever custom range
+  // is already active (today's date, blank end, if none), and on Search,
+  // switches this modal into custom-range mode -- see
+  // lokiSearchSyncRangeCheckboxState and renderSearchResults above for how
+  // that disables/overrides the exact Date field and the four checkboxes.
+  lokiSearchDateRangeBtn.addEventListener('click', function () {
+    var todayStr = toDateStr(startOfToday());
+    openDateRangeModal(
+      lokiSearchCustomRange ? lokiSearchCustomRange.start : todayStr,
+      lokiSearchCustomRange ? lokiSearchCustomRange.end : todayStr,
+      function (start, end) {
+        lokiSearchCustomRange = { start: start, end: end };
+        lokiSearchDateInput.value = '';
+        renderSearchResults();
+      }
+    );
+  });
+  // Clears just the date-range filter (unlike the broader Clear button
+  // above, leaves any typed name search in place) -- the "option to clear
+  // this search and reset everything" the badge itself offers.
+  lokiSearchCustomRangeClearBtn.addEventListener('click', function () {
+    lokiSearchCustomRange = null;
     renderSearchResults();
   });
   var lokiCancelReschedMouseDownOnOverlay = false;

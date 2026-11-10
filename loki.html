@@ -66,7 +66,13 @@
           <span class="loki-nav-label" id="apptRangeLabel">&mdash;</span>
           <button type="button" class="btn btn-outline loki-nav-btn" id="apptTodayBtn">Today</button>
           <button type="button" class="btn btn-outline loki-nav-btn" id="apptNextBtn">Later &rarr;</button>
+          <button type="button" class="btn btn-outline loki-nav-btn" id="apptDateRangeBtn">Search By Date Range</button>
           <button type="button" class="loki-refresh-btn" id="apptRefreshBtn" title="Refresh" aria-label="Refresh appointments"><i data-icon="refresh"></i></button>
+        </div>
+
+        <div class="loki-custom-range-row" id="apptCustomRangeRow" hidden>
+          <span class="loki-custom-range-badge" id="apptCustomRangeBadge"></span>
+          <button type="button" class="loki-range-clear-btn" id="apptCustomRangeClearBtn">&times; Clear date range</button>
         </div>
 
         <div class="loki-sort-row">
@@ -328,7 +334,12 @@
         <label class="loki-search-range-checkbox" id="lokiSearchRangeEarlierLabel"><input type="checkbox" id="lokiSearchRangeEarlier"> Earlier</label>
         <label class="loki-search-range-checkbox" id="lokiSearchRangeFutureLabel"><input type="checkbox" id="lokiSearchRangeFuture"> Tomorrow &amp; Further Dates</label>
         <label class="loki-search-range-checkbox" id="lokiSearchRangeAllLabel"><input type="checkbox" id="lokiSearchRangeAll"> All</label>
+        <button type="button" class="btn btn-outline loki-search-daterange-btn" id="lokiSearchDateRangeBtn">Search By Date Range</button>
         <button type="button" class="btn btn-outline loki-search-sort-toggle" id="lokiSearchSortToggle" aria-pressed="false" title="Sort results by date ascending or descending">Date &uarr; (Oldest First)</button>
+      </div>
+      <div class="loki-custom-range-row" id="lokiSearchCustomRangeRow" hidden>
+        <span class="loki-custom-range-badge" id="lokiSearchCustomRangeBadge"></span>
+        <button type="button" class="loki-range-clear-btn" id="lokiSearchCustomRangeClearBtn">&times; Clear date range</button>
       </div>
       <button type="button" class="loki-search-back-btn" id="lokiSearchBackBtn" hidden>&larr; Back</button>
       <div class="loki-search-results" id="lokiSearchResults">
@@ -348,6 +359,21 @@
       <div class="loki-view-more-details" id="lokiViewMoreDetails"></div>
       <button type="button" class="btn btn-outline loki-view-more-photos-btn" id="lokiViewMorePhotosBtn" hidden>&#128065; View All</button>
     </div>
+  </div>
+</div>
+
+<!-- ===== Search By Date Range sub-modal (shared: Appointment Detail Section + Search modal) ===== -->
+<div class="modal-overlay" id="dateRangeModalOverlay">
+  <div class="modal-box">
+    <button type="button" class="modal-close" id="closeDateRangeModal" aria-label="Close"><i data-icon="x"></i></button>
+    <h3>Search By Date Range</h3>
+    <p class="modal-sub">Pick a start and end date to load bookings in that range.</p>
+    <div class="loki-range-fields">
+      <label>Start date <input type="date" id="dateRangeStartInput"></label>
+      <label>End date <input type="date" id="dateRangeEndInput"></label>
+    </div>
+    <p class="form-status" id="dateRangeStatus" aria-live="polite"></p>
+    <button type="button" class="btn btn-primary btn-block" id="dateRangeSearchBtn">Search</button>
   </div>
 </div>
 
